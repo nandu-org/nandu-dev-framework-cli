@@ -6,7 +6,21 @@ NDF is the framework files; this is the CLI that fetches, installs, and updates 
 
 ## Install
 
-One-liner — no auth required to install the CLI itself:
+One-liner — no auth required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nandu-org/nandu-dev-framework-cli/main/install.sh | bash
+```
+
+The installer downloads `ndf` to `~/.local/bin/ndf` and (if needed) adds `~/.local/bin` to your `$PATH` by appending one line to your `~/.zshrc` or `~/.bashrc`. Idempotent — safe to re-run to upgrade in place.
+
+After install, either open a new terminal or run `exec $SHELL -l`, then verify:
+
+```bash
+ndf version
+```
+
+### Manual install (if you'd rather not pipe to bash)
 
 ```bash
 mkdir -p ~/.local/bin
@@ -14,17 +28,11 @@ curl -fsSL https://raw.githubusercontent.com/nandu-org/nandu-dev-framework-cli/m
   -o ~/.local/bin/ndf && chmod +x ~/.local/bin/ndf
 ```
 
-If `~/.local/bin` is not on your `$PATH`, add it (one-time):
+Then add `~/.local/bin` to your `$PATH` if it isn't already:
 
 ```bash
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # or ~/.bashrc on bash
 exec $SHELL -l
-```
-
-Verify:
-
-```bash
-ndf version
 ```
 
 ## Use
