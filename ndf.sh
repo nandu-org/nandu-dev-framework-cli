@@ -5,6 +5,10 @@
 #   ndf init   [--token=<framework_pat>] [--fieldnotes-token=<fieldnotes_pat>] [--fieldnotes-repo=<owner/repo>] [--version=<x.y.z>]
 #   ndf update [--version=<x.y.z>] [--latest]
 #
+# After a non-no-op update, ndf prints a team handoff message — a paste-ready
+# block summarizing version bump, changes, and what coworkers need to do
+# (git pull, merge main, /compact). For the updater to copy into team chat.
+#
 # Config: ~/.config/nandu/config.json   (mode 0600)
 #   {framework_pat, fieldnotes_pat, fieldnotes_repo}
 # Env overrides: NDF_GITHUB_TOKEN, NDF_FIELDNOTES_TOKEN  (token-only; repo has no env override)
@@ -16,7 +20,7 @@ set -euo pipefail
 
 # ---------- constants ----------
 
-readonly NDF_CLI_VERSION="1.1.0"
+readonly NDF_CLI_VERSION="1.2.0"
 readonly NDF_REPO="nandu-org/nandu-dev-framework"
 readonly NDF_CONFIG_DIR="${HOME}/.config/nandu"
 readonly NDF_CONFIG_FILE="${NDF_CONFIG_DIR}/config.json"
@@ -410,8 +414,12 @@ cmd_update() {
   # Track new checksums map (we'll update .ndf.json at the end)
   local new_checksums="{}"
 
+  # Track changes for the team handoff message at the end.
+  local changes_file
+  changes_file="$(mktemp)"
+
   # ---- pass 1: process each file in the new manifest ----
-  echo "$new_paths_json" | jq -c '.[]' | while IFS= read -r entry; do
+  while IFS= read -r entry; do
     local p new_sha rn
     p="$(echo "$entry" | jq -r '.path')"
     new_sha="$(echo "$entry" | jq -r '.checksum')"
@@ -433,6 +441,7 @@ cmd_update() {
           mkdir -p "$(dirname "$p")"
           _fetch_file_to "$ref" "$p" "$p"
           [[ -f "$rn" ]] && rm "$rn"
+          echo "rename	${rn} → ${p}" >> "$changes_file"
         else
           _warn "  rename ${rn} → ${p}: client has modified ${rn}; downloading framework version to ${p} for review."
           _fetch_file_to "$ref" "$p" "$p"
@@ -451,6 +460,7 @@ cmd_update() {
       # Net-new file
       _info "  new: ${p}"
       _fetch_file_to "$ref" "$p" "$p"
+      echo "new	${p}" >> "$changes_file"
     else
       # Existing file — check for content change
       local installed_sha
@@ -468,6 +478,7 @@ cmd_update() {
           # Client hasn't modified; replace silently.
           _info "  update: ${p}"
           _fetch_file_to "$ref" "$p" "$p"
+          echo "update	${p}" >> "$changes_file"
         else
           # Both client AND framework changed it — diff and prompt.
           local tmp
@@ -478,8 +489,8 @@ cmd_update() {
           local choice
           choice="$(_prompt "  [r]eplace with framework, [s]kip, or [b]ackup-and-replace? (default: s)" "s")"
           case "$choice" in
-            r|R) cp "$tmp" "$p"; _info "    replaced ${p}." ;;
-            b|B) cp "$p" "${p}.local-backup"; cp "$tmp" "$p"; _info "    backed up ${p} → ${p}.local-backup; replaced with framework version." ;;
+            r|R) cp "$tmp" "$p"; _info "    replaced ${p}."; echo "update-with-conflict	${p}" >> "$changes_file" ;;
+            b|B) cp "$p" "${p}.local-backup"; cp "$tmp" "$p"; _info "    backed up ${p} → ${p}.local-backup; replaced with framework version."; echo "update-with-conflict	${p}" >> "$changes_file" ;;
             *) _info "    skipped ${p}." ;;
           esac
           rm -f "$tmp"
@@ -493,7 +504,7 @@ cmd_update() {
       final_sha="$(_sha256 "$p")"
       new_checksums="$(echo "$new_checksums" | jq --arg k "$p" --arg v "$final_sha" '. + {($k): $v}')"
     fi
-  done
+  done < <(echo "$new_paths_json" | jq -c '.[]')
 
   # ---- pass 2: removed files (in old, not in new, not as a rename source) ----
   # Build a set of paths from new manifest (including rename sources we already handled)
@@ -508,6 +519,7 @@ cmd_update() {
         if [[ -f "$old_path" ]]; then
           _warn "removing ${old_path} (no longer in framework)"
           rm "$old_path"
+          echo "remove	${old_path}" >> "$changes_file"
         fi
       fi
     fi
@@ -526,6 +538,60 @@ cmd_update() {
   _marker_write "$target_version" "$new_pinned" "$new_checksums"
 
   _ok "ndf update complete. Now at v${target_version}."
+
+  # ---- team handoff message ----
+  _print_team_handoff "$current_version" "$target_version" "$changes_file" "$migration_count"
+  rm -f "$changes_file"
+}
+
+# Print a paste-ready team handoff message after a non-no-op update.
+_print_team_handoff() {
+  local from_v="$1" to_v="$2" cf="$3" migration_count="${4:-0}"
+
+  # Skip the message entirely if nothing changed.
+  if [[ ! -s "$cf" ]] && [[ "$migration_count" -eq 0 ]]; then
+    return 0
+  fi
+
+  echo ""
+  echo "===================="
+  echo "TEAM HANDOFF — paste in your team chat"
+  echo "===================="
+  echo ""
+  if [[ "$from_v" == "$to_v" ]]; then
+    echo "Framework updated on main (drift fixes; version stays at v${to_v})"
+  else
+    echo "Framework updated: v${from_v} → v${to_v} (on main)"
+  fi
+  echo ""
+
+  if [[ "$migration_count" -gt 0 ]]; then
+    echo "⚠️  THIS UPDATE INCLUDES A STRUCTURAL MIGRATION."
+    echo "   After merging main, run /ndf-migrate in Claude Code, then continue."
+    echo ""
+  fi
+
+  if [[ -s "$cf" ]]; then
+    local total
+    total="$(wc -l < "$cf" | tr -d ' ')"
+    echo "Changed (${total} file(s)):"
+    # Show each change with its kind prefix
+    awk -F'	' '{printf "- %s (%s)
+", $2, $1}' "$cf"
+    echo ""
+  fi
+
+  echo "What you need to do:"
+  echo "- git pull origin main"
+  echo "- If on a phase branch: git merge main (or rebase per team convention)"
+  if [[ "$migration_count" -gt 0 ]]; then
+    echo "- Run /ndf-migrate in your Claude Code session"
+  fi
+  echo "- If you have an active Claude Code session: /compact after merging"
+  echo ""
+  echo "CHANGELOG: https://github.com/${NDF_REPO}/blob/main/CHANGELOG.md"
+  echo ""
+  echo "===================="
 }
 
 # ---------- help ----------

@@ -65,6 +65,8 @@ Pin to a specific version: `ndf update --version=3.0.0`. Clear the pin: `ndf upd
 
 When a release includes a structural migration, `ndf update` pre-delivers the migration spec and stops with an instruction to run `/ndf-migrate` in Claude Code, then re-run `ndf update`. See METHODOLOGY.md (delivered into each project) for the full flow.
 
+After a non-no-op update, `ndf update` prints a **team handoff message** — a paste-ready block summarizing the version bump, what changed, and what coworkers need to do (`git pull`, `git merge main`, `/compact`). Designed for the updater to drop into team chat. See METHODOLOGY.md's "Framework updates during active development" section for the multi-developer workflow.
+
 ## Requirements
 
 - Bash, curl, jq, diff, sed, awk
