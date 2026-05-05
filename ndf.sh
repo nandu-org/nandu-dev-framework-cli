@@ -20,7 +20,7 @@ set -euo pipefail
 
 # ---------- constants ----------
 
-readonly NDF_CLI_VERSION="1.2.0"
+readonly NDF_CLI_VERSION="1.2.1"
 readonly NDF_REPO="nandu-org/nandu-dev-framework"
 readonly NDF_CONFIG_DIR="${HOME}/.config/nandu"
 readonly NDF_CONFIG_FILE="${NDF_CONFIG_DIR}/config.json"
@@ -539,9 +539,80 @@ cmd_update() {
 
   _ok "ndf update complete. Now at v${target_version}."
 
+  # ---- offer commit + push BEFORE the team handoff message ----
+  _offer_commit_and_push "$target_version" "$changes_file" "$migration_count"
+
   # ---- team handoff message ----
   _print_team_handoff "$current_version" "$target_version" "$changes_file" "$migration_count"
   rm -f "$changes_file"
+}
+
+# Offer to commit + push the framework changes before showing the team handoff.
+# The handoff message tells coworkers to git pull, so it's premature if the
+# updater hasn't pushed yet.
+_offer_commit_and_push() {
+  local target_version="$1" cf="$2" migration_count="${3:-0}"
+  local proj_dir="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+  # Skip if not in a git repo (e.g., a throwaway test dir)
+  if ! git -C "$proj_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # Skip if the update was a no-op (no changes_file content and no migrations)
+  if [[ ! -s "$cf" ]] && [[ "$migration_count" -eq 0 ]]; then
+    return 0
+  fi
+
+  local branch
+  branch="$(git -C "$proj_dir" branch --show-current 2>/dev/null)"
+
+  # Skip if no uncommitted changes (already committed somehow)
+  if git -C "$proj_dir" diff --quiet && git -C "$proj_dir" diff --cached --quiet; then
+    return 0
+  fi
+
+  # Warn if not on a typical integration branch
+  if [[ "$branch" != "main" && "$branch" != "master" ]]; then
+    _warn "you are on branch \"$branch\", not the typical integration branch."
+    _warn "Framework updates usually land on main first; coworkers pull from there."
+  fi
+
+  echo ""
+  echo "Framework changes are uncommitted on branch \"$branch\"."
+  echo "Coworkers will pull from main, so push before sharing the team handoff."
+  echo ""
+
+  local choice
+  choice="$(_prompt "Commit and push these changes now? [Y/n]" "y")"
+  case "$choice" in
+    n|N|no|NO|skip|SKIP)
+      _warn "Skipped. Before pasting the team handoff into chat:"
+      _warn "  git -C \"$proj_dir\" add -A"
+      _warn "  git -C \"$proj_dir\" commit -m \"ndf: update to v${target_version}\""
+      _warn "  git -C \"$proj_dir\" push origin ${branch}"
+      return 0
+      ;;
+  esac
+
+  # Default branch is yes — commit + push
+  if ! git -C "$proj_dir" add -A; then
+    _warn "git add failed; commit yourself manually before sharing handoff."
+    return 1
+  fi
+
+  if ! git -C "$proj_dir" commit -m "ndf: update to v${target_version}"; then
+    _warn "git commit failed; resolve and commit manually before sharing handoff."
+    return 1
+  fi
+  _info "committed: ndf: update to v${target_version}"
+
+  if ! git -C "$proj_dir" push origin "${branch}" 2>&1; then
+    _warn "git push failed; the commit landed locally but is NOT yet on remote."
+    _warn "Push manually before sharing the team handoff message."
+    return 1
+  fi
+  _ok "pushed to origin/${branch}"
 }
 
 # Print a paste-ready team handoff message after a non-no-op update.
@@ -576,8 +647,7 @@ _print_team_handoff() {
     total="$(wc -l < "$cf" | tr -d ' ')"
     echo "Changed (${total} file(s)):"
     # Show each change with its kind prefix
-    awk -F'	' '{printf "- %s (%s)
-", $2, $1}' "$cf"
+    awk -F'	' '{print "- " $2 " (" $1 ")"}' "$cf"
     echo ""
   fi
 
