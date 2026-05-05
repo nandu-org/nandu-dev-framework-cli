@@ -20,7 +20,7 @@ set -euo pipefail
 
 # ---------- constants ----------
 
-readonly NDF_CLI_VERSION="1.2.1"
+readonly NDF_CLI_VERSION="1.2.2"
 readonly NDF_REPO="nandu-org/nandu-dev-framework"
 readonly NDF_CONFIG_DIR="${HOME}/.config/nandu"
 readonly NDF_CONFIG_FILE="${NDF_CONFIG_DIR}/config.json"
@@ -411,9 +411,6 @@ cmd_update() {
   local installed_json
   installed_json="$(_marker_load | jq '.installed_checksums')"
 
-  # Track new checksums map (we'll update .ndf.json at the end)
-  local new_checksums="{}"
-
   # Track changes for the team handoff message at the end.
   local changes_file
   changes_file="$(mktemp)"
@@ -498,13 +495,21 @@ cmd_update() {
       fi
     fi
 
-    # Record the new checksum (use the final state of the file on disk for safety).
-    if [[ -f "$p" ]]; then
-      local final_sha
-      final_sha="$(_sha256 "$p")"
-      new_checksums="$(echo "$new_checksums" | jq --arg k "$p" --arg v "$final_sha" '. + {($k): $v}')"
-    fi
   done < <(echo "$new_paths_json" | jq -c '.[]')
+
+  # ---- build new_checksums from the manifest, not from disk ----
+  local new_checksums
+  # The marker should reflect the FRAMEWORK VERSIONS we presented to the user,
+  # not on-disk state. Disk state can drift (customizations); recording disk
+  # state in installed_checksums causes a customized-then-skipped file to be
+  # silently reverted on the next run (manifest_sha != "installed_sha", but
+  # current_sha == "installed_sha", which the diff logic interprets as
+  # "framework changed; client unchanged" → silent replace, destroying the
+  # customization). Always set new_checksums = {path: manifest_sha} for every
+  # file in the new manifest. Renamed files: only the new path is in the
+  # manifest, so the old path is naturally absent. Removed files are absent
+  # from the manifest and therefore from new_checksums.
+  new_checksums="$(echo "$new_paths_json" | jq 'map({(.path): .checksum}) | add // {}')"
 
   # ---- pass 2: removed files (in old, not in new, not as a rename source) ----
   # Build a set of paths from new manifest (including rename sources we already handled)
