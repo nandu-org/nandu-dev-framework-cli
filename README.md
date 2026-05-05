@@ -37,11 +37,14 @@ exec $SHELL -l
 
 ## Use
 
-**First project on a machine:** provide your tokens with `--token` and `--api-token`. They are persisted to `~/.config/nandu/config.json` (mode 0600) for all subsequent `ndf` invocations and the `/field-note` slash command.
+**First project on a machine:** provide your framework PAT, field-notes PAT, and field-notes repo path. Persisted to `~/.config/nandu/config.json` (mode 0600) for all subsequent `ndf` invocations and the `/field-note` slash command.
 
 ```bash
 cd new-project
-ndf init --token=ghp_xxxxx --api-token=ndf_xxxxx
+ndf init \
+  --token=ghp_framework_xxxxx \
+  --fieldnotes-token=ghp_fieldnotes_yyyyy \
+  --fieldnotes-repo=nandu-org/field-notes-<your-slug>
 ```
 
 **Subsequent projects on the same machine:** just `init`, no flags needed.
@@ -77,10 +80,10 @@ When a release includes a structural migration, `ndf update` pre-delivers the mi
 
 ## Env vars (CI use)
 
-- `NDF_GITHUB_TOKEN` — overrides `github_pat` from the config file
-- `NDF_API_TOKEN` — overrides `api_token` from the config file
+- `NDF_GITHUB_TOKEN` — overrides `framework_pat` from the config file
+- `NDF_FIELDNOTES_TOKEN` — overrides `fieldnotes_pat` from the config file
 
-When set, env vars take precedence over the config file. Useful in CI where you don't want to materialize `~/.config/nandu/config.json`.
+When set, env vars take precedence over the config file. Useful in CI where you don't want to materialize `~/.config/nandu/config.json`. `fieldnotes_repo` has no env-var override (it's not a secret); CI workflows that need it should write the config file directly.
 
 ## License
 

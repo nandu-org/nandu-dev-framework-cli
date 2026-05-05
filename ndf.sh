@@ -2,11 +2,12 @@
 # ndf — Nandu Development Framework CLI
 #
 # Subcommands:
-#   ndf init   [--token=<github_pat>] [--api-token=<ndf_api_token>] [--version=<x.y.z>]
+#   ndf init   [--token=<framework_pat>] [--fieldnotes-token=<fieldnotes_pat>] [--fieldnotes-repo=<owner/repo>] [--version=<x.y.z>]
 #   ndf update [--version=<x.y.z>] [--latest]
 #
 # Config: ~/.config/nandu/config.json   (mode 0600)
-# Env overrides: NDF_GITHUB_TOKEN, NDF_API_TOKEN  (precedence over config file)
+#   {framework_pat, fieldnotes_pat, fieldnotes_repo}
+# Env overrides: NDF_GITHUB_TOKEN, NDF_FIELDNOTES_TOKEN  (token-only; repo has no env override)
 #
 # Source of framework files: nandu-org/nandu-dev-framework  (private GitHub repo)
 # Source of this CLI:        nandu-org/nandu-dev-framework-cli  (public)
@@ -15,14 +16,12 @@ set -euo pipefail
 
 # ---------- constants ----------
 
-readonly NDF_CLI_VERSION="1.0.0"
+readonly NDF_CLI_VERSION="1.1.0"
 readonly NDF_REPO="nandu-org/nandu-dev-framework"
 readonly NDF_CONFIG_DIR="${HOME}/.config/nandu"
 readonly NDF_CONFIG_FILE="${NDF_CONFIG_DIR}/config.json"
 readonly NDF_PROJECT_MARKER=".ndf.json"
 readonly NDF_PENDING_MIGRATION=".ndf-pending-migration"
-readonly NDF_DEFAULT_API_ENDPOINT="https://framework-api.nandu.ai"
-
 # ---------- output helpers ----------
 
 _die() { echo "ndf: error: $*" >&2; exit 1; }
@@ -71,32 +70,24 @@ _config_get() {
 }
 
 _config_save() {
-  # _config_save <github_pat> <api_token> <api_endpoint>
+  # _config_save <framework_pat> <fieldnotes_pat> <fieldnotes_repo>
   mkdir -p "$NDF_CONFIG_DIR"
   chmod 700 "$NDF_CONFIG_DIR"
   jq -n \
-    --arg pat "$1" \
-    --arg api "$2" \
-    --arg ep "$3" \
-    '{github_pat: $pat, api_token: $api, api_endpoint: $ep}' \
+    --arg framework "$1" \
+    --arg fieldnotes "$2" \
+    --arg repo "$3" \
+    '{framework_pat: $framework, fieldnotes_pat: $fieldnotes, fieldnotes_repo: $repo}' \
     > "$NDF_CONFIG_FILE"
   chmod 600 "$NDF_CONFIG_FILE"
 }
 
 _resolve_token() {
-  # NDF_GITHUB_TOKEN env var > config file
+  # NDF_GITHUB_TOKEN env var > config file (framework_pat key)
   if [[ -n "${NDF_GITHUB_TOKEN:-}" ]]; then
     echo "$NDF_GITHUB_TOKEN"
   else
-    _config_get github_pat
-  fi
-}
-
-_resolve_api_token() {
-  if [[ -n "${NDF_API_TOKEN:-}" ]]; then
-    echo "$NDF_API_TOKEN"
-  else
-    _config_get api_token
+    _config_get framework_pat
   fi
 }
 
@@ -225,33 +216,41 @@ _marker_write() {
 # ---------- subcommand: init ----------
 
 cmd_init() {
-  local cli_token="" cli_api_token="" requested_version=""
+  local cli_framework_pat="" cli_fieldnotes_pat="" cli_fieldnotes_repo="" requested_version=""
   for arg in "$@"; do
     case "$arg" in
-      --token=*) cli_token="${arg#*=}" ;;
-      --api-token=*) cli_api_token="${arg#*=}" ;;
+      --token=*) cli_framework_pat="${arg#*=}" ;;
+      --fieldnotes-token=*) cli_fieldnotes_pat="${arg#*=}" ;;
+      --fieldnotes-repo=*) cli_fieldnotes_repo="${arg#*=}" ;;
       --version=*) requested_version="${arg#*=}" ;;
       -h|--help) _print_help_init; return 0 ;;
       *) _die "unknown init flag: $arg" ;;
     esac
   done
 
-  # If tokens provided, persist them (overwriting any existing config).
-  if [[ -n "$cli_token" || -n "$cli_api_token" ]]; then
-    local existing_pat existing_api existing_ep
-    existing_pat="$(_config_get github_pat)"
-    existing_api="$(_config_get api_token)"
-    existing_ep="$(_config_get api_endpoint)"
-    [[ -z "$existing_ep" ]] && existing_ep="$NDF_DEFAULT_API_ENDPOINT"
+  # If any config field was provided on the command line, persist them.
+  # Existing fields not overridden by the CLI flags are preserved.
+  if [[ -n "$cli_framework_pat" || -n "$cli_fieldnotes_pat" || -n "$cli_fieldnotes_repo" ]]; then
+    local existing_framework existing_fieldnotes existing_repo
+    existing_framework="$(_config_get framework_pat)"
+    existing_fieldnotes="$(_config_get fieldnotes_pat)"
+    existing_repo="$(_config_get fieldnotes_repo)"
 
-    [[ -n "$cli_token" ]] && existing_pat="$cli_token"
-    [[ -n "$cli_api_token" ]] && existing_api="$cli_api_token"
+    [[ -n "$cli_framework_pat" ]] && existing_framework="$cli_framework_pat"
+    [[ -n "$cli_fieldnotes_pat" ]] && existing_fieldnotes="$cli_fieldnotes_pat"
+    [[ -n "$cli_fieldnotes_repo" ]] && existing_repo="$cli_fieldnotes_repo"
 
-    if [[ -f "$NDF_CONFIG_FILE" && (-n "$cli_token" || -n "$cli_api_token") ]]; then
-      _info "overwriting existing tokens in ${NDF_CONFIG_FILE}"
+    if [[ -f "$NDF_CONFIG_FILE" ]]; then
+      _info "overwriting existing config at ${NDF_CONFIG_FILE}"
     fi
-    _config_save "$existing_pat" "$existing_api" "$existing_ep"
+    _config_save "$existing_framework" "$existing_fieldnotes" "$existing_repo"
     _info "wrote ${NDF_CONFIG_FILE} (mode 0600)"
+
+    # Warn if the /field-note slash command will not work due to missing config.
+    if [[ -z "$existing_fieldnotes" || -z "$existing_repo" ]]; then
+      _warn "--fieldnotes-token and/or --fieldnotes-repo not configured."
+      _warn "/field-note will not work until you re-run \`ndf init\` with those flags."
+    fi
   fi
 
   # Verify we have a token at this point.
@@ -538,14 +537,20 @@ Usage: ndf init [flags]
 Scaffold a new ndf project in the current directory.
 
 Flags:
-  --token=<github_pat>      GitHub PAT with read access to nandu-org/nandu-dev-framework
-  --api-token=<api_token>   Nandu API token for /field-note submissions
-  --version=<x.y.z>         Pin to a specific framework version (default: latest tag)
+  --token=<framework_pat>            GitHub PAT, read-only on nandu-org/nandu-dev-framework
+  --fieldnotes-token=<fieldnotes_pat>  GitHub PAT, write-only on the client's field-notes repo
+  --fieldnotes-repo=<owner/repo>     The client's field-notes repo, e.g. nandu-org/field-notes-vera
+  --version=<x.y.z>                  Pin to a specific framework version (default: latest tag)
 
-If --token or --api-token are provided, they are persisted to ~/.config/nandu/config.json
-(mode 0600) for use by subsequent ndf invocations and by the /field-note slash command.
+Any provided values are persisted to ~/.config/nandu/config.json (mode 0600). On
+subsequent ndf invocations, the file is read silently — no flags needed unless you
+want to overwrite a value.
 
-Env vars NDF_GITHUB_TOKEN and NDF_API_TOKEN override the config file when set.
+Env vars NDF_GITHUB_TOKEN and NDF_FIELDNOTES_TOKEN override the config file when
+set (token-only; fieldnotes_repo has no env-var override).
+
+The /field-note slash command requires both --fieldnotes-token and --fieldnotes-repo.
+If either is missing, /field-note prints a clear "not configured" message and stops.
 EOF
 }
 
