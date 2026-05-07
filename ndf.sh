@@ -20,7 +20,7 @@ set -euo pipefail
 
 # ---------- constants ----------
 
-readonly NDF_CLI_VERSION="1.2.2"
+readonly NDF_CLI_VERSION="1.2.3"
 readonly NDF_REPO="nandu-org/nandu-dev-framework"
 readonly NDF_CONFIG_DIR="${HOME}/.config/nandu"
 readonly NDF_CONFIG_FILE="${NDF_CONFIG_DIR}/config.json"
@@ -302,6 +302,7 @@ cmd_init() {
 - Language: <e.g. Python 3.12, Node.js 20, Rust 1.75>
 - Framework: <e.g. FastAPI, Express, Actix>
 - Database: <e.g. BigQuery, Postgres, SQLite>
+- Dependency cache path: <e.g. `node_modules/`, `.venv/lib/python3.12/site-packages/`, `~/.cargo/registry/src/`> — used by the inspect-over-execute rule for `Read`/`Grep` on installed library source.
 - <Other critical dependencies>
 
 ## Key rules
