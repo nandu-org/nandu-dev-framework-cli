@@ -30,7 +30,7 @@ set -euo pipefail
 
 # ---------- constants ----------
 
-readonly NDF_CLI_VERSION="1.3.0"
+readonly NDF_CLI_VERSION="1.3.1"
 readonly NDF_REPO="nandu-org/nandu-dev-framework"
 readonly NDF_CONFIG_DIR="${HOME}/.config/nandu"
 readonly NDF_CONFIG_FILE="${NDF_CONFIG_DIR}/config.json"
@@ -468,30 +468,52 @@ cmd_update() {
   fi
 
   # Migrations gate: if this manifest declares pending migrations, pre-deliver only those + the slash command, then stop.
+  # Sentinel-aware: each migration in manifest.migrations[] is considered applied when
+  # `.ndf-migrations/<migration-name>.complete` exists. If every listed migration is
+  # already applied, skip the gate entirely and proceed to the regular file-level update.
+  # The sentinel-name-matches-migration-name convention is enforced by migration specs
+  # (see ndf-maintainer skill).
   local migration_count
   migration_count="$(echo "$manifest" | jq -r '.migrations // [] | length')"
   if [[ "$migration_count" -gt 0 ]]; then
-    _info "this release includes ${migration_count} structural migration(s); pre-delivering specs…"
     local migration_list
     migration_list="$(echo "$manifest" | jq -r '.migrations[]')"
 
-    # Pre-deliver each migration spec and the slash command.
+    # Sentinel check — count migrations still pending (no .complete file yet).
+    local pending_migrations=()
     while IFS= read -r migration_name; do
-      local spec_path="migrations/${migration_name}.md"
-      _info "  ${spec_path}"
-      _fetch_file_to "$ref" "$spec_path" "$spec_path"
+      [[ -z "$migration_name" ]] && continue
+      if [[ ! -f ".ndf-migrations/${migration_name}.complete" ]]; then
+        pending_migrations+=("$migration_name")
+      fi
     done <<< "$migration_list"
 
-    _info "  .claude/commands/ndf-migrate.md"
-    _fetch_file_to "$ref" ".claude/commands/ndf-migrate.md" ".claude/commands/ndf-migrate.md"
+    if [[ ${#pending_migrations[@]} -eq 0 ]]; then
+      _info "all ${migration_count} migration(s) in manifest already applied (sentinels present); skipping migration gate."
+      # Clean up any stale pending-migration marker from older CLI versions.
+      rm -f "$NDF_PENDING_MIGRATION"
+      # Fall through to the regular file-level update flow below.
+    else
+      _info "this release includes ${#pending_migrations[@]} pending structural migration(s); pre-delivering specs…"
 
-    # Write the pending-migration marker so /ndf-migrate knows what to apply.
-    echo "$migration_list" > "$NDF_PENDING_MIGRATION"
+      # Pre-deliver each pending migration spec and the slash command.
+      for migration_name in "${pending_migrations[@]}"; do
+        local spec_path="migrations/${migration_name}.md"
+        _info "  ${spec_path}"
+        _fetch_file_to "$ref" "$spec_path" "$spec_path"
+      done
 
-    _ok ""
-    _ok "v${target_version} includes a structural migration. Run /ndf-migrate in Claude Code to apply,"
-    _ok "then re-run \`ndf update\` to complete the file-level changes."
-    return 0
+      _info "  .claude/commands/ndf-migrate.md"
+      _fetch_file_to "$ref" ".claude/commands/ndf-migrate.md" ".claude/commands/ndf-migrate.md"
+
+      # Write the pending-migration marker so /ndf-migrate knows what to apply.
+      printf "%s\n" "${pending_migrations[@]}" > "$NDF_PENDING_MIGRATION"
+
+      _ok ""
+      _ok "v${target_version} includes a structural migration. Run /ndf-migrate in Claude Code to apply,"
+      _ok "then re-run \`ndf update\` to complete the file-level changes."
+      return 0
+    fi
   fi
 
   # Build a lookup of new-manifest entries.
