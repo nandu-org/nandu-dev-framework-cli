@@ -2,15 +2,25 @@
 # ndf — Nandu Development Framework CLI
 #
 # Subcommands:
-#   ndf init   [--token=<framework_pat>] [--fieldnotes-token=<fieldnotes_pat>] [--fieldnotes-repo=<owner/repo>] [--version=<x.y.z>]
-#   ndf update [--version=<x.y.z>] [--latest]
+#   ndf init        [--token=<framework_pat>] [--fieldnotes-token=<fieldnotes_pat>] [--fieldnotes-repo=<owner/repo>] [--version=<x.y.z>]
+#       Scaffold a NEW NDF project. Refuses on existing .ndf.json — use \`ndf login\` to set tokens for an existing project.
+#   ndf login       [--token=<framework_pat>] [--fieldnotes-token=<fieldnotes_pat>]
+#       Set per-developer credentials. Interactive by default (hidden input); accepts flags for non-interactive use (CI).
+#   ndf update      [--version=<x.y.z>] [--latest]
+#       Update an existing NDF project to the target framework version.
+#   ndf config show
+#       Print the resolved config with PATs masked.
 #
 # After a non-no-op update, ndf prints a team handoff message — a paste-ready
 # block summarizing version bump, changes, and what coworkers need to do
-# (git pull, merge main, /compact). For the updater to copy into team chat.
+# (git pull, merge main, /compact).
 #
-# Config: ~/.config/nandu/config.json   (mode 0600)
-#   {framework_pat, fieldnotes_pat, fieldnotes_repo}
+# Per-developer config: ~/.config/nandu/config.json   (mode 0600)
+#   {framework_pat, fieldnotes_pat}
+#   (Legacy v1.2.x configs may also have fieldnotes_repo here; v1.3.0+ reads
+#   it from each project's .ndf.json first and falls back to config.json.)
+# Per-project: <project>/.ndf.json
+#   {version, pinned_version, installed_checksums, fieldnotes_repo}
 # Env overrides: NDF_GITHUB_TOKEN, NDF_FIELDNOTES_TOKEN  (token-only; repo has no env override)
 #
 # Source of framework files: nandu-org/nandu-dev-framework  (private GitHub repo)
@@ -20,7 +30,7 @@ set -euo pipefail
 
 # ---------- constants ----------
 
-readonly NDF_CLI_VERSION="1.2.3"
+readonly NDF_CLI_VERSION="1.3.0"
 readonly NDF_REPO="nandu-org/nandu-dev-framework"
 readonly NDF_CONFIG_DIR="${HOME}/.config/nandu"
 readonly NDF_CONFIG_FILE="${NDF_CONFIG_DIR}/config.json"
@@ -70,19 +80,40 @@ _config_get() {
   # _config_get <key>   — prints value or empty string
   local key="$1"
   [[ -f "$NDF_CONFIG_FILE" ]] || { echo ""; return; }
-  jq -r --arg k "$key" '.[$k] // ""' "$NDF_CONFIG_FILE"
+  local val
+  if ! val="$(jq -r --arg k "$key" '.[$k] // ""' "$NDF_CONFIG_FILE" 2>/dev/null)"; then
+    _die "${NDF_CONFIG_FILE} is not valid JSON. Inspect it (cat ${NDF_CONFIG_FILE}) and fix, or rebuild with: rm ${NDF_CONFIG_FILE} && ndf login"
+  fi
+  echo "$val"
 }
 
 _config_save() {
-  # _config_save <framework_pat> <fieldnotes_pat> <fieldnotes_repo>
+  # _config_save <framework_pat> <fieldnotes_pat>
+  # Per v1.3.0: fieldnotes_repo is per-project (.ndf.json), no longer stored
+  # here. Legacy v1.2.x configs that have fieldnotes_repo are preserved
+  # (so the slash command's fallback can still find it).
   mkdir -p "$NDF_CONFIG_DIR"
   chmod 700 "$NDF_CONFIG_DIR"
-  jq -n \
-    --arg framework "$1" \
-    --arg fieldnotes "$2" \
-    --arg repo "$3" \
-    '{framework_pat: $framework, fieldnotes_pat: $fieldnotes, fieldnotes_repo: $repo}' \
-    > "$NDF_CONFIG_FILE"
+
+  local existing_repo=""
+  if [[ -f "$NDF_CONFIG_FILE" ]]; then
+    existing_repo="$(jq -r '.fieldnotes_repo // ""' "$NDF_CONFIG_FILE" 2>/dev/null || echo "")"
+  fi
+
+  if [[ -n "$existing_repo" ]]; then
+    jq -n \
+      --arg framework "$1" \
+      --arg fieldnotes "$2" \
+      --arg repo "$existing_repo" \
+      '{framework_pat: $framework, fieldnotes_pat: $fieldnotes, fieldnotes_repo: $repo}' \
+      > "$NDF_CONFIG_FILE"
+  else
+    jq -n \
+      --arg framework "$1" \
+      --arg fieldnotes "$2" \
+      '{framework_pat: $framework, fieldnotes_pat: $fieldnotes}' \
+      > "$NDF_CONFIG_FILE"
+  fi
   chmod 600 "$NDF_CONFIG_FILE"
 }
 
@@ -93,6 +124,29 @@ _resolve_token() {
   else
     _config_get framework_pat
   fi
+}
+
+_resolve_fieldnotes_token() {
+  # NDF_FIELDNOTES_TOKEN env var > config file (fieldnotes_pat key)
+  if [[ -n "${NDF_FIELDNOTES_TOKEN:-}" ]]; then
+    echo "$NDF_FIELDNOTES_TOKEN"
+  else
+    _config_get fieldnotes_pat
+  fi
+}
+
+_resolve_fieldnotes_repo() {
+  # Per-project marker (.ndf.json) takes precedence; falls back to per-developer
+  # config (legacy v1.2.x location). Returns empty string if neither has it.
+  if [[ -f "$NDF_PROJECT_MARKER" ]]; then
+    local v
+    v="$(jq -r '.fieldnotes_repo // ""' "$NDF_PROJECT_MARKER" 2>/dev/null || echo "")"
+    if [[ -n "$v" ]]; then
+      echo "$v"
+      return
+    fi
+  fi
+  _config_get fieldnotes_repo
 }
 
 # ---------- HTTP ----------
@@ -204,14 +258,37 @@ _marker_get() {
 }
 
 _marker_write() {
-  # _marker_write <version> <pinned_or_null> <checksums-jq-object>
-  local version="$1" pinned="$2" checksums="$3"
+  # _marker_write <version> <pinned_or_null> <checksums-jq-object> [fieldnotes_repo]
+  # If fieldnotes_repo is absent or empty, preserve any existing value in the
+  # marker (so a no-op update doesn't drop it). If present, set it.
+  local version="$1" pinned="$2" checksums="$3" repo="${4:-}"
+
+  local existing_repo=""
+  if [[ -f "$NDF_PROJECT_MARKER" ]]; then
+    existing_repo="$(jq -r '.fieldnotes_repo // ""' "$NDF_PROJECT_MARKER" 2>/dev/null || echo "")"
+  fi
+  [[ -z "$repo" ]] && repo="$existing_repo"
+
+  local pinned_arg
   if [[ "$pinned" == "null" ]]; then
-    jq -n --arg v "$version" --argjson c "$checksums" \
-      '{version: $v, pinned_version: null, installed_checksums: $c}' \
+    pinned_arg='null'
+  else
+    pinned_arg="\"$pinned\""
+  fi
+
+  if [[ -n "$repo" ]]; then
+    jq -n \
+      --arg v "$version" \
+      --argjson c "$checksums" \
+      --arg repo "$repo" \
+      --argjson p "$pinned_arg" \
+      '{version: $v, pinned_version: $p, installed_checksums: $c, fieldnotes_repo: $repo}' \
       > "$NDF_PROJECT_MARKER"
   else
-    jq -n --arg v "$version" --arg p "$pinned" --argjson c "$checksums" \
+    jq -n \
+      --arg v "$version" \
+      --argjson c "$checksums" \
+      --argjson p "$pinned_arg" \
       '{version: $v, pinned_version: $p, installed_checksums: $c}' \
       > "$NDF_PROJECT_MARKER"
   fi
@@ -232,37 +309,36 @@ cmd_init() {
     esac
   done
 
-  # If any config field was provided on the command line, persist them.
-  # Existing fields not overridden by the CLI flags are preserved.
-  if [[ -n "$cli_framework_pat" || -n "$cli_fieldnotes_pat" || -n "$cli_fieldnotes_repo" ]]; then
-    local existing_framework existing_fieldnotes existing_repo
+  # ndf init scaffolds a NEW project. If .ndf.json exists, redirect to the
+  # right command for the user's intent.
+  if [[ -f "$NDF_PROJECT_MARKER" ]]; then
+    _die "$(printf '%s\n' \
+      "${NDF_PROJECT_MARKER} already exists. This is already an NDF project." \
+      "" \
+      "  To set or update your credentials:  ndf login" \
+      "  To update the project:              ndf update")"
+  fi
+
+  # If tokens were provided as flags, persist them now (before the project
+  # scaffolding work) so a partial scaffold leaves credentials configured.
+  if [[ -n "$cli_framework_pat" || -n "$cli_fieldnotes_pat" ]]; then
+    local existing_framework existing_fieldnotes
     existing_framework="$(_config_get framework_pat)"
     existing_fieldnotes="$(_config_get fieldnotes_pat)"
-    existing_repo="$(_config_get fieldnotes_repo)"
 
     [[ -n "$cli_framework_pat" ]] && existing_framework="$cli_framework_pat"
     [[ -n "$cli_fieldnotes_pat" ]] && existing_fieldnotes="$cli_fieldnotes_pat"
-    [[ -n "$cli_fieldnotes_repo" ]] && existing_repo="$cli_fieldnotes_repo"
 
-    if [[ -f "$NDF_CONFIG_FILE" ]]; then
-      _info "overwriting existing config at ${NDF_CONFIG_FILE}"
-    fi
-    _config_save "$existing_framework" "$existing_fieldnotes" "$existing_repo"
-    _info "wrote ${NDF_CONFIG_FILE} (mode 0600)"
-
-    # Warn if the /field-note slash command will not work due to missing config.
-    if [[ -z "$existing_fieldnotes" || -z "$existing_repo" ]]; then
-      _warn "--fieldnotes-token and/or --fieldnotes-repo not configured."
-      _warn "/field-note will not work until you re-run \`ndf init\` with those flags."
-    fi
+    _config_save "$existing_framework" "$existing_fieldnotes"
+    _info "tokens saved to ${NDF_CONFIG_FILE} (mode 0600)"
   fi
 
-  # Verify we have a token at this point.
-  [[ -n "$(_resolve_token)" ]] || _die "no GitHub PAT configured. Re-run with --token=<ghp_xxx>."
+  # Verify we have a framework token at this point.
+  [[ -n "$(_resolve_token)" ]] || _die "no framework PAT configured. Run \`ndf login\` first, or pass --token=<ghp_xxx>."
 
-  # If marker already exists in this directory, refuse.
-  if [[ -f "$NDF_PROJECT_MARKER" ]]; then
-    _die "${NDF_PROJECT_MARKER} already exists. This is already an ndf project. Use \`ndf update\` instead."
+  # Warn if /field-note will be inoperative on this machine
+  if [[ -z "$(_resolve_fieldnotes_token)" ]]; then
+    _warn "no field-notes PAT configured. /field-note will not work until you run \`ndf login\` with the field-notes token."
   fi
 
   local ref
@@ -325,8 +401,13 @@ STUB
   local pinned="null"
   [[ -n "$requested_version" ]] && pinned="$mver"
 
-  _marker_write "$mver" "$pinned" "$checksums"
+  _marker_write "$mver" "$pinned" "$checksums" "$cli_fieldnotes_repo"
   _ok "ndf init complete. Installed v${mver} into $(pwd)."
+  if [[ -n "$cli_fieldnotes_repo" ]]; then
+    _info "fieldnotes_repo set to ${cli_fieldnotes_repo} in .ndf.json — commit this so coworkers pick it up automatically."
+  else
+    _warn "no --fieldnotes-repo provided; /field-note won't have a target until it's set in .ndf.json (or fall back to ~/.config/nandu/config.json)."
+  fi
   _ok "Next steps: edit CLAUDE.project.md, .claude/hooks/pre-commit-tests.sh, and .claude/settings.json (allow-list) per METHODOLOGY.md."
 }
 
@@ -344,6 +425,15 @@ cmd_update() {
   done
   if [[ -n "$requested_version" && -n "$use_latest" ]]; then
     _die "--version and --latest are mutually exclusive."
+  fi
+
+  # Friendly message if tokens aren't configured (better than letting _curl
+  # fail with a generic "no GitHub PAT" error mid-flow).
+  if [[ -z "$(_resolve_token)" ]]; then
+    _die "$(printf '%s\n' \
+      "no framework PAT configured." \
+      "" \
+      "Run \`ndf login\` to set your tokens, then re-run \`ndf update\`.")"
   fi
 
   _marker_load >/dev/null
@@ -541,7 +631,10 @@ cmd_update() {
   elif [[ -n "$pinned_version" && "$pinned_version" != "null" ]]; then
     new_pinned="$pinned_version"
   fi
-  _marker_write "$target_version" "$new_pinned" "$new_checksums"
+  # Preserve existing fieldnotes_repo through the update (if any).
+  local existing_repo
+  existing_repo="$(jq -r '.fieldnotes_repo // ""' "$NDF_PROJECT_MARKER" 2>/dev/null || echo "")"
+  _marker_write "$target_version" "$new_pinned" "$new_checksums" "$existing_repo"
 
   _ok "ndf update complete. Now at v${target_version}."
 
@@ -670,29 +763,189 @@ _print_team_handoff() {
   echo "===================="
 }
 
+# ---------- subcommand: login ----------
+
+cmd_login() {
+  local cli_framework_pat="" cli_fieldnotes_pat=""
+  for arg in "$@"; do
+    case "$arg" in
+      --token=*) cli_framework_pat="${arg#*=}" ;;
+      --fieldnotes-token=*) cli_fieldnotes_pat="${arg#*=}" ;;
+      -h|--help) _print_help_login; return 0 ;;
+      *) _die "unknown login flag: $arg" ;;
+    esac
+  done
+
+  # Existing values (so user can press Enter to keep current)
+  local existing_framework existing_fieldnotes
+  existing_framework="$(_config_get framework_pat)"
+  existing_fieldnotes="$(_config_get fieldnotes_pat)"
+
+  local new_framework="$cli_framework_pat"
+  local new_fieldnotes="$cli_fieldnotes_pat"
+
+  # Interactive prompt for framework PAT (if not provided as flag)
+  if [[ -z "$new_framework" ]]; then
+    local prompt_label="Framework PAT"
+    [[ -n "$existing_framework" ]] && prompt_label="${prompt_label} [press Enter to keep current]"
+    printf "%s: " "$prompt_label" >&2
+    read -rs new_framework
+    echo "" >&2
+    [[ -z "$new_framework" ]] && new_framework="$existing_framework"
+  fi
+
+  # Interactive prompt for fieldnotes PAT
+  if [[ -z "$new_fieldnotes" ]]; then
+    local prompt_label="Field-notes PAT"
+    if [[ -n "$existing_fieldnotes" ]]; then
+      prompt_label="${prompt_label} [press Enter to keep current]"
+    else
+      prompt_label="${prompt_label} (leave empty if not yet provisioned)"
+    fi
+    printf "%s: " "$prompt_label" >&2
+    read -rs new_fieldnotes
+    echo "" >&2
+    [[ -z "$new_fieldnotes" ]] && new_fieldnotes="$existing_fieldnotes"
+  fi
+
+  # Validate framework PAT (required)
+  if [[ -z "$new_framework" ]]; then
+    _die "framework PAT is required. Get yours from your team's secure credential share."
+  fi
+
+  _config_save "$new_framework" "$new_fieldnotes"
+  _ok "tokens saved to ${NDF_CONFIG_FILE} (mode 0600)"
+
+  if [[ -z "$new_fieldnotes" ]]; then
+    _warn "field-notes PAT not set. /field-note will not work until you re-run \`ndf login\` with both tokens."
+  fi
+}
+
+# ---------- subcommand: config ----------
+
+cmd_config() {
+  local sub="${1:-}"
+  shift || true
+  case "$sub" in
+    show) _config_show "$@" ;;
+    set)  _die "\`ndf config set\` is not supported. To set tokens, run \`ndf login\`. fieldnotes_repo is per-project — set it via \`ndf init --fieldnotes-repo=...\` from a fresh project, or edit the project's .ndf.json directly." ;;
+    -h|--help|help|"") _print_help_config ;;
+    *) _die "unknown config subcommand: $sub. Try: ndf config show" ;;
+  esac
+}
+
+_config_show() {
+  if [[ ! -f "$NDF_CONFIG_FILE" ]]; then
+    echo "No config at ${NDF_CONFIG_FILE}. Run \`ndf login\` to set up credentials."
+    return 0
+  fi
+
+  local framework fieldnotes legacy_repo
+  framework="$(_config_get framework_pat)"
+  fieldnotes="$(_config_get fieldnotes_pat)"
+  legacy_repo="$(_config_get fieldnotes_repo)"
+
+  echo "Per-developer config (${NDF_CONFIG_FILE}):"
+  echo "  framework_pat:  $(_mask_token "$framework")"
+  echo "  fieldnotes_pat: $(_mask_token "$fieldnotes")"
+  if [[ -n "$legacy_repo" ]]; then
+    echo "  fieldnotes_repo: ${legacy_repo}  (legacy v1.2.x location; v1.3.0+ reads per-project .ndf.json first)"
+  fi
+  echo ""
+
+  if [[ -f "$NDF_PROJECT_MARKER" ]]; then
+    echo "Per-project marker (./${NDF_PROJECT_MARKER}):"
+    local proj_version proj_pinned proj_repo
+    proj_version="$(jq -r '.version // "(unknown)"' "$NDF_PROJECT_MARKER" 2>/dev/null)"
+    proj_pinned="$(jq -r '.pinned_version // "null"' "$NDF_PROJECT_MARKER" 2>/dev/null)"
+    proj_repo="$(jq -r '.fieldnotes_repo // ""' "$NDF_PROJECT_MARKER" 2>/dev/null)"
+    echo "  version:         ${proj_version}"
+    echo "  pinned_version:  ${proj_pinned}"
+    if [[ -n "$proj_repo" ]]; then
+      echo "  fieldnotes_repo: ${proj_repo}"
+    fi
+  else
+    echo "(not currently in an NDF project — no .ndf.json in cwd)"
+  fi
+
+  echo ""
+  echo "Resolved fieldnotes_repo (for /field-note in this directory):"
+  local resolved
+  resolved="$(_resolve_fieldnotes_repo)"
+  if [[ -n "$resolved" ]]; then
+    echo "  ${resolved}"
+  else
+    echo "  (not configured — /field-note will fail in this directory)"
+  fi
+}
+
+_mask_token() {
+  local t="$1"
+  if [[ -z "$t" ]]; then
+    echo "(not set)"
+  elif [[ ${#t} -le 8 ]]; then
+    echo "***"
+  else
+    echo "${t:0:4}...${t: -4}"
+  fi
+}
+
 # ---------- help ----------
 
 _print_help_init() {
   cat <<EOF
 Usage: ndf init [flags]
 
-Scaffold a new ndf project in the current directory.
+Scaffold a NEW ndf project in the current directory.
+Refuses on existing .ndf.json — use \`ndf login\` to set tokens for an existing project,
+or \`ndf update\` to update an already-installed project.
 
 Flags:
-  --token=<framework_pat>            GitHub PAT, read-only on nandu-org/nandu-dev-framework
+  --token=<framework_pat>              GitHub PAT, read-only on the framework repo
   --fieldnotes-token=<fieldnotes_pat>  GitHub PAT, write-only on the client's field-notes repo
-  --fieldnotes-repo=<owner/repo>     The client's field-notes repo, e.g. nandu-org/field-notes-vera
-  --version=<x.y.z>                  Pin to a specific framework version (default: latest tag)
+  --fieldnotes-repo=<owner/repo>       The client's field-notes repo (written to .ndf.json)
+  --version=<x.y.z>                    Pin to a specific framework version (default: latest tag)
 
-Any provided values are persisted to ~/.config/nandu/config.json (mode 0600). On
-subsequent ndf invocations, the file is read silently — no flags needed unless you
-want to overwrite a value.
+Tokens (--token, --fieldnotes-token) are persisted to ~/.config/nandu/config.json
+(per-developer). The fieldnotes_repo is persisted to the project's .ndf.json
+(per-project, committed) so coworkers cloning the project pick it up automatically.
 
-Env vars NDF_GITHUB_TOKEN and NDF_FIELDNOTES_TOKEN override the config file when
-set (token-only; fieldnotes_repo has no env-var override).
+Env vars NDF_GITHUB_TOKEN and NDF_FIELDNOTES_TOKEN override the config file when set.
+fieldnotes_repo has no env-var override.
 
-The /field-note slash command requires both --fieldnotes-token and --fieldnotes-repo.
-If either is missing, /field-note prints a clear "not configured" message and stops.
+To set credentials WITHOUT scaffolding a project, use \`ndf login\` instead.
+EOF
+}
+
+_print_help_login() {
+  cat <<EOF
+Usage: ndf login [flags]
+
+Set per-developer credentials. Interactive by default — prompts for tokens
+with hidden input (the values don't appear on screen or in shell history).
+
+Flags (for non-interactive / CI use):
+  --token=<framework_pat>              Framework PAT (read-only on the framework repo)
+  --fieldnotes-token=<fieldnotes_pat>  Field-notes PAT (write-only on the client's field-notes repo)
+
+If a flag is provided, that value is used directly (no prompt). If a flag is
+omitted, the prompt offers the existing value (press Enter to keep it).
+
+Tokens are saved to ~/.config/nandu/config.json (mode 0600). Use \`ndf config
+show\` to verify the resolved state without exposing the raw values.
+EOF
+}
+
+_print_help_config() {
+  cat <<EOF
+Usage: ndf config <subcommand> [flags]
+
+Subcommands:
+  show    Print the resolved per-developer + per-project config (PATs masked)
+
+To set tokens: \`ndf login\`.
+To set the fieldnotes_repo for a project: \`ndf init --fieldnotes-repo=...\`
+from a fresh directory, or edit the project's .ndf.json directly.
 EOF
 }
 
@@ -718,12 +971,19 @@ ndf — Nandu Development Framework CLI (v${NDF_CLI_VERSION})
 Usage: ndf <command> [flags]
 
 Commands:
-  init     Scaffold a new ndf project in the current directory
-  update   Update the framework files in the current project
-  version  Print the CLI version
-  help     Print this help
+  init           Scaffold a NEW ndf project in the current directory
+  login          Set per-developer credentials (interactive by default)
+  update         Update an existing ndf project to a target framework version
+  config show    Print the resolved config (per-developer + per-project), PATs masked
+  version        Print the CLI version
+  help           Print this help
 
 Run \`ndf <command> --help\` for command-specific help.
+
+Typical onboarding flow for joining an existing NDF project:
+  1) Install the CLI via the install.sh one-liner
+  2) ndf login                          (set your tokens — interactive, hidden input)
+  3) cd <project> && ndf update         (verify everything works)
 EOF
 }
 
@@ -736,7 +996,9 @@ main() {
   shift || true
   case "$cmd" in
     init)    cmd_init "$@" ;;
+    login)   cmd_login "$@" ;;
     update)  cmd_update "$@" ;;
+    config)  cmd_config "$@" ;;
     version) echo "ndf v${NDF_CLI_VERSION}" ;;
     help|-h|--help) _print_help ;;
     *) _print_help; exit 1 ;;

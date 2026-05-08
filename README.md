@@ -37,28 +37,41 @@ exec $SHELL -l
 
 ## Use
 
-**First project on a machine:** provide your framework PAT, field-notes PAT, and field-notes repo path. Persisted to `~/.config/nandu/config.json` (mode 0600) for all subsequent `ndf` invocations and the `/field-note` slash command.
+**Joining an existing NDF project (most common case):**
 
 ```bash
-cd new-project
+ndf login              # interactive — prompts for both PATs (hidden input)
+cd <project>
+ndf update             # verifies your local copy is current
+```
+
+`ndf login` saves your tokens to `~/.config/nandu/config.json` (mode 0600). The `fieldnotes_repo` for the project lives in the project's `.ndf.json` (committed by the project owner), so cloning the project gives you the right value automatically.
+
+**Scaffolding a NEW project from scratch:**
+
+```bash
+mkdir new-project && cd new-project
 ndf init \
-  --token=ghp_framework_xxxxx \
-  --fieldnotes-token=ghp_fieldnotes_yyyyy \
-  --fieldnotes-repo=nandu-org/field-notes-<your-slug>
+  --token=<framework_pat> \
+  --fieldnotes-token=<fieldnotes_pat> \
+  --fieldnotes-repo=<owner/repo>
 ```
 
-**Subsequent projects on the same machine:** just `init`, no flags needed.
+`ndf init` writes the framework files and creates `.ndf.json` with the project's `fieldnotes_repo`. Commit `.ndf.json` so coworkers don't need to set the repo path themselves.
 
-```bash
-cd another-project
-ndf init
-```
-
-**Update an existing ndf project:**
+**Update an existing NDF project:**
 
 ```bash
 cd existing-project
-ndf update
+ndf update                       # latest tag (or pinned_version if set)
+ndf update --version=3.1.0       # pin
+ndf update --latest              # clear pin, take latest
+```
+
+**Verify your config:**
+
+```bash
+ndf config show                  # prints resolved config with PATs masked
 ```
 
 Pin to a specific version: `ndf update --version=3.0.0`. Clear the pin: `ndf update --latest`.
