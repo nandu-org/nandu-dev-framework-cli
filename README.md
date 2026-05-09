@@ -1,38 +1,60 @@
 # ndf — Nandu Development Framework CLI
 
-Bash CLI for installing and updating the [Nandu Development Framework](https://github.com/nandu-org/nandu-dev-framework) (NDF) in your Claude Code projects.
+CLI for installing and updating the [Nandu Development Framework](https://github.com/nandu-org/nandu-dev-framework) (NDF) in your Claude Code projects.
 
 NDF is the framework files; this is the CLI that fetches, installs, and updates them. The framework files themselves live in a private repo — this CLI uses a GitHub PAT (issued per licensed organization) to fetch them at install and update time.
 
+`ndf` ships as a single static binary. No bash, no Python, no Node — nothing but the executable. Native support for macOS (Intel + Apple Silicon), Linux (x86_64), and Windows (x86_64).
+
 ## Install
 
-One-liner — no auth required:
+### macOS — Homebrew (recommended)
+
+```bash
+brew install nandu-org/tap/ndf
+```
+
+### Windows — Scoop (recommended)
+
+```powershell
+scoop bucket add nandu https://github.com/nandu-org/scoop-bucket
+scoop install ndf
+```
+
+### Windows — PowerShell one-liner
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/nandu-org/nandu-dev-framework-cli/main/install.ps1 | iex
+```
+
+> **First-run note (Windows, v2.0.0):** until v2.0.1 ships with code signing, Windows SmartScreen will show "Windows protected your PC" the first time you run `ndf.exe`. Click **More info → Run anyway**. v2.0.1 onwards will be Authenticode-signed by nandu.ai GmbH and the prompt disappears.
+
+### macOS / Linux — curl one-liner
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nandu-org/nandu-dev-framework-cli/main/install.sh | bash
 ```
 
-The installer downloads `ndf` to `~/.local/bin/ndf` and (if needed) adds `~/.local/bin` to your `$PATH` by appending one line to your `~/.zshrc` or `~/.bashrc`. Idempotent — safe to re-run to upgrade in place.
+Installs `ndf` to `~/.local/bin/ndf` and adds that to your `$PATH` if it isn't already there.
 
-After install, either open a new terminal or run `exec $SHELL -l`, then verify:
+### Manual download
 
-```bash
+Pre-built binaries for every release: <https://github.com/nandu-org/nandu-dev-framework-cli/releases>
+
+```
+ndf-darwin-arm64       — macOS Apple Silicon
+ndf-darwin-amd64       — macOS Intel
+ndf-linux-amd64        — Linux x86_64
+ndf-windows-amd64.exe  — Windows x86_64
+checksums.txt          — sha256 per file
+```
+
+Download, verify checksum, place on `$PATH`, `chmod +x` (Unix).
+
+After install, verify:
+
+```
 ndf version
-```
-
-### Manual install (if you'd rather not pipe to bash)
-
-```bash
-mkdir -p ~/.local/bin
-curl -fsSL https://raw.githubusercontent.com/nandu-org/nandu-dev-framework-cli/main/ndf.sh \
-  -o ~/.local/bin/ndf && chmod +x ~/.local/bin/ndf
-```
-
-Then add `~/.local/bin` to your `$PATH` if it isn't already:
-
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # or ~/.bashrc on bash
-exec $SHELL -l
 ```
 
 ## Use
@@ -45,7 +67,11 @@ cd <project>
 ndf update             # verifies your local copy is current
 ```
 
-`ndf login` saves your tokens to `~/.config/nandu/config.json` (mode 0600). The `fieldnotes_repo` for the project lives in the project's `.ndf.json` (committed by the project owner), so cloning the project gives you the right value automatically.
+`ndf login` saves your tokens to the per-developer config:
+- macOS / Linux: `~/.config/nandu/config.json` (mode 0600)
+- Windows: `%APPDATA%\nandu\config.json`
+
+The `fieldnotes_repo` for the project lives in the project's `.ndf.json` (committed by the project owner), so cloning the project gives you the right value automatically.
 
 **Scaffolding a NEW project from scratch:**
 
@@ -74,23 +100,19 @@ ndf update --latest              # clear pin, take latest
 ndf config show                  # prints resolved config with PATs masked
 ```
 
-Pin to a specific version: `ndf update --version=3.0.0`. Clear the pin: `ndf update --latest`.
-
 When a release includes a structural migration, `ndf update` pre-delivers the migration spec and stops with an instruction to run `/ndf-migrate` in Claude Code, then re-run `ndf update`. See METHODOLOGY.md (delivered into each project) for the full flow.
 
 After a non-no-op update, `ndf update` prints a **team handoff message** — a paste-ready block summarizing the version bump, what changed, and what coworkers need to do (`git pull`, `git merge main`, `/compact`). Designed for the updater to drop into team chat. See METHODOLOGY.md's "Framework updates during active development" section for the multi-developer workflow.
 
 ## Requirements
 
-- Bash, curl, jq, diff, sed, awk
-- sha256sum (Linux) or shasum (macOS)
-- macOS, Linux, or Windows under WSL — Claude Code itself requires WSL on Windows, so the CLI does too. Native PowerShell/cmd is not supported.
+`ndf` itself has **no runtime dependencies** — single static binary. The only external tool it shells out to is `git`, and only when offering to commit + push framework changes after `ndf update`. If `git` isn't on `$PATH`, `ndf update` still completes; it just skips the optional auto-commit step.
 
 ## Where things live
 
 - CLI source (this repo, public): [nandu-org/nandu-dev-framework-cli](https://github.com/nandu-org/nandu-dev-framework-cli)
 - Framework files (private, requires PAT): [nandu-org/nandu-dev-framework](https://github.com/nandu-org/nandu-dev-framework)
-- Per-developer config: `~/.config/nandu/config.json` (mode 0600; created by `ndf init`)
+- Per-developer config: `~/.config/nandu/config.json` on Unix / `%APPDATA%\nandu\config.json` on Windows (mode 0600 on Unix; created by `ndf login`)
 - Per-project marker: `.ndf.json` in the project root (commit this — it's how `ndf update` knows what's installed)
 
 ## Env vars (CI use)
@@ -98,8 +120,19 @@ After a non-no-op update, `ndf update` prints a **team handoff message** — a p
 - `NDF_GITHUB_TOKEN` — overrides `framework_pat` from the config file
 - `NDF_FIELDNOTES_TOKEN` — overrides `fieldnotes_pat` from the config file
 
-When set, env vars take precedence over the config file. Useful in CI where you don't want to materialize `~/.config/nandu/config.json`. `fieldnotes_repo` has no env-var override (it's not a secret); CI workflows that need it should write the config file directly.
+When set, env vars take precedence over the config file. Useful in CI where you don't want to materialize the config file. `fieldnotes_repo` has no env-var override (it's not a secret); CI workflows that need it should write the marker directly.
+
+## Building from source
+
+```bash
+git clone https://github.com/nandu-org/nandu-dev-framework-cli
+cd nandu-dev-framework-cli
+go build -o ndf .
+./ndf version
+```
+
+Requires Go 1.22+. No external Go dependencies beyond `golang.org/x/term` (vendored on `go mod tidy`).
 
 ## License
 
-MIT for the CLI script in this repo. The framework files in `nandu-org/nandu-dev-framework` are under a separate commercial license — see that repo for details.
+MIT for the CLI in this repo. The framework files in `nandu-org/nandu-dev-framework` are under a separate commercial license — see that repo for details.

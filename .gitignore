@@ -1,0 +1,12 @@
+# Local Go build outputs.
+/ndf
+/ndf.exe
+/ndf-darwin-*
+/ndf-linux-*
+/ndf-windows-*.exe
+
+# Editor / OS noise.
+.DS_Store
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,101 @@
+# Release workflow — fires on a v*.*.* tag push.
+#
+# Cross-compiles the Go binary for darwin/arm64, darwin/amd64, linux/amd64,
+# windows/amd64 and uploads them to a new GitHub Release alongside a
+# checksums.txt file.
+#
+# Triggered by:  git tag v2.0.0 && git push origin v2.0.0
+#
+# Why one job with a build matrix instead of a separate job per OS:
+# - Cross-compiling Go is trivial; we don't need native runners.
+# - One job means one set of upload steps; the release object is built
+#   incrementally with softprops/action-gh-release using append semantics.
+#
+# Outputs in the release:
+#   ndf-darwin-arm64       — macOS Apple Silicon
+#   ndf-darwin-amd64       — macOS Intel
+#   ndf-linux-amd64        — Linux x86_64
+#   ndf-windows-amd64.exe  — Windows x86_64
+#   checksums.txt          — sha256(filename) per line
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write  # required to create releases
+
+jobs:
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+            artifact: ndf-darwin-arm64
+          - goos: darwin
+            goarch: amd64
+            artifact: ndf-darwin-amd64
+          - goos: linux
+            goarch: amd64
+            artifact: ndf-linux-amd64
+          - goos: windows
+            goarch: amd64
+            artifact: ndf-windows-amd64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          go build -trimpath -ldflags="-s -w -X main.CLIVersion=${GITHUB_REF_NAME#v}" -o "${{ matrix.artifact }}" .
+          ls -la "${{ matrix.artifact }}"
+
+      - name: checksum
+        run: sha256sum "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: assemble checksums.txt
+        working-directory: dist
+        run: |
+          cat *.sha256 > checksums.txt
+          rm *.sha256
+          ls -la
+
+      - name: create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/*

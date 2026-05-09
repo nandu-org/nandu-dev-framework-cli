@@ -1,4 +1,21 @@
 #!/usr/bin/env bash
+#
+# ============================================================================
+# DEPRECATED — DO NOT EDIT, DO NOT RUN.
+# ============================================================================
+# This is the v1.x bash CLI, archived for historical reference. The current
+# CLI is the Go binary built from main.go and friends in this repo (v2.0.0+).
+#
+# Why archived:
+#   - bash + jq + awk + sed + diff + sha256sum dependency chain
+#   - no native Windows support without WSL
+#   - can't ship as a single binary
+#
+# If you're looking at this to understand legacy behavior: every behavior
+# here is faithfully ported into the Go binary (see update.go, init.go, etc).
+# Do not modify; new work goes in the .go files.
+# ============================================================================
+#
 # ndf — Nandu Development Framework CLI
 #
 # Subcommands:
