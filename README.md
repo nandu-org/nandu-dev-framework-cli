@@ -27,7 +27,11 @@ scoop install ndf
 iwr -useb https://raw.githubusercontent.com/nandu-org/nandu-dev-framework-cli/main/install.ps1 | iex
 ```
 
-> **First-run note (Windows, v2.0.0):** until v2.0.1 ships with code signing, Windows SmartScreen will show "Windows protected your PC" the first time you run `ndf.exe`. Click **More info → Run anyway**. v2.0.1 onwards will be Authenticode-signed by nandu.ai GmbH and the prompt disappears.
+> **First-run prompts (current releases are unsigned):** until code signing ships, you'll see a one-time prompt the first time you run `ndf` on a new machine.
+> - **Windows:** SmartScreen "Windows protected your PC" — click **More info → Run anyway**.
+> - **macOS:** Gatekeeper "cannot verify developer" — open **System Settings → Privacy & Security → Open Anyway**, or `xattr -d com.apple.quarantine $(which ndf)` in a terminal.
+>
+> Both prompts clear permanently after acknowledgement. A future release will ship Authenticode-signed (Windows) and Apple-notarized (macOS) binaries from nandu.ai GmbH and the prompts will disappear entirely.
 
 ### macOS / Linux — curl one-liner
 
