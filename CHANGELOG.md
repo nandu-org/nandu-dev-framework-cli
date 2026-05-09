@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.0.1 — 2026-05-09
+
+**Bug fix.** Fixes a config-path regression in v2.0.0 that prevented the Go binary from reading existing v1.x config files on macOS.
+
+### Fixed
+
+- **macOS config path.** v2.0.0 used Go's `os.UserConfigDir()`, which returns `~/Library/Application Support` on macOS — not `~/.config` where the bash CLI v1.x wrote `config.json`. The Go binary therefore couldn't see existing PATs and reported "no framework PAT configured" on every command. v2.0.1 hardcodes `~/.config/nandu/` on macOS + Linux (matching bash v1.x behavior), keeping `XDG_CONFIG_HOME` overrides intact and `%APPDATA%\nandu\` on Windows. Existing v1.x users on macOS no longer need to re-run `ndf login`.
+
+### No other changes
+
+No behavior changes beyond the path fix. Same binaries shipped via Homebrew, Scoop, `install.sh`, `install.ps1`, and direct download.
+
+---
+
 ## v2.0.0 — 2026-05-09
 
 **Full rewrite from bash to Go. Native Windows support. Single static binary on every platform.**

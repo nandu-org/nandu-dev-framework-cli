@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Per-developer config (tokens) — same path on macOS and Linux as the bash
@@ -29,19 +30,23 @@ const (
 
 // configDir returns the per-developer config directory.
 //   - $XDG_CONFIG_HOME/nandu  (if set)
-//   - ~/.config/nandu          (Unix default)
-//   - %APPDATA%\nandu          (Windows default — os.UserConfigDir handles this)
+//   - ~/.config/nandu          (macOS + Linux — matches bash CLI v1.x writes)
+//   - %APPDATA%\nandu          (Windows — os.UserConfigDir handles this)
+//
+// On macOS, os.UserConfigDir returns ~/Library/Application Support, which
+// would NOT match the bash CLI's ~/.config/nandu path. Byte-compatibility
+// with v1.x-written config files requires we hardcode ~/.config on macOS.
 func configDir() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "nandu")
 	}
-	d, err := os.UserConfigDir()
-	if err != nil {
-		// Fallback to ~/.config/nandu — covers any pathological env.
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".config", "nandu")
+	if runtime.GOOS == "windows" {
+		if d, err := os.UserConfigDir(); err == nil {
+			return filepath.Join(d, "nandu")
+		}
 	}
-	return filepath.Join(d, "nandu")
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "nandu")
 }
 
 func configFile() string {
