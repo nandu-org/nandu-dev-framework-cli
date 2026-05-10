@@ -49,6 +49,9 @@ func cmdInit(args []string) {
 			cliFieldnotesPAT = strings.TrimPrefix(a, "--fieldnotes-token=")
 		case strings.HasPrefix(a, "--fieldnotes-repo="):
 			cliFieldnotesRepo = strings.TrimPrefix(a, "--fieldnotes-repo=")
+			if err := validateRepoSlug(cliFieldnotesRepo); err != nil {
+				die("invalid --fieldnotes-repo: %v", err)
+			}
 		case strings.HasPrefix(a, "--version="):
 			requestedVersion = strings.TrimPrefix(a, "--version=")
 		case a == "-h" || a == "--help":
@@ -89,6 +92,23 @@ func cmdInit(args []string) {
 
 	if resolveFieldnotesToken() == "" {
 		warn("no field-notes PAT configured. /field-note will not work until you run `ndf login` with the field-notes token.")
+	}
+
+	// If --fieldnotes-repo was omitted, prompt for it interactively.
+	// Mirrors how `ndf login` prompts for missing tokens. CI / non-TTY:
+	// prompt() returns the default ("") and we fall through to the
+	// warn-and-continue path at the end of init (some clients legitimately
+	// don't have a field-notes repo provisioned at init time).
+	if cliFieldnotesRepo == "" {
+		cliFieldnotesRepo = prompt(
+			"Field-notes repo (e.g. nandu-org/Vera-FieldNotes) — leave empty to skip:",
+			"",
+		)
+		if cliFieldnotesRepo != "" {
+			if err := validateRepoSlug(cliFieldnotesRepo); err != nil {
+				die("invalid fieldnotes_repo from prompt: %v", err)
+			}
+		}
 	}
 
 	ref, err := resolveRef(requestedVersion)

@@ -14,7 +14,10 @@ or ` + "`ndf update`" + ` to update an already-installed project.
 Flags:
   --token=<framework_pat>              GitHub PAT, read-only on the framework repo
   --fieldnotes-token=<fieldnotes_pat>  GitHub PAT, write-only on the client's field-notes repo
-  --fieldnotes-repo=<owner/repo>       The client's field-notes repo (written to .ndf.json)
+  --fieldnotes-repo=<owner/repo>       The client's field-notes repo (written to .ndf.json).
+                                       If omitted, ndf init prompts for it interactively
+                                       (TTY only); in CI, the warning is emitted and you
+                                       can set it later via ` + "`ndf config set fieldnotes-repo`" + `.
   --version=<x.y.z>                    Pin to a specific framework version (default: latest tag)
 
 Tokens (--token, --fieldnotes-token) are persisted to the per-developer
@@ -46,14 +49,25 @@ Use ` + "`ndf config show`" + ` to verify the resolved state without exposing th
 }
 
 func printHelpConfig() {
-	rawErr(`Usage: ndf config <subcommand> [flags]
+	rawErr(`Usage: ndf config <subcommand> [args]
 
 Subcommands:
-  show    Print the resolved per-developer + per-project config (PATs masked)
+  show                          Print the resolved per-developer + per-project config (PATs masked)
+  set <key> <value>             Set a configuration key (currently: fieldnotes-repo OWNER/REPO)
 
-To set tokens: ` + "`ndf login`" + `.
-To set the fieldnotes_repo for a project: ` + "`ndf init --fieldnotes-repo=...`" + `
-from a fresh directory, or edit the project's .ndf.json directly.`)
+Tokens are set via ` + "`ndf login`" + `, not ` + "`ndf config set`" + `.`)
+}
+
+func printHelpConfigSet() {
+	rawErr(`Usage: ndf config set <key> <value>
+
+Set a configuration key.
+
+Supported keys:
+  fieldnotes-repo OWNER/REPO    The project's field-notes repo. Persisted to .ndf.json
+                                (per-project, committed). Must be run inside an ndf project.
+
+Tokens (framework PAT, fieldnotes PAT) are set via ` + "`ndf login`" + `, not here.`)
 }
 
 func printHelpUpdate() {
@@ -79,6 +93,7 @@ Commands:
   login          Set per-developer credentials (interactive by default)
   update         Update an existing ndf project to a target framework version
   config show    Print the resolved config (per-developer + per-project), PATs masked
+  config set     Set a config key (currently: fieldnotes-repo OWNER/REPO)
   version        Print the CLI version
   help           Print this help
 

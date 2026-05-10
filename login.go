@@ -91,11 +91,53 @@ func cmdConfig(args []string) {
 	case "show":
 		cmdConfigShow()
 	case "set":
-		die("`ndf config set` is not supported. To set tokens, run `ndf login`. fieldnotes_repo is per-project — set it via `ndf init --fieldnotes-repo=...` from a fresh project, or edit the project's .ndf.json directly.")
+		cmdConfigSet(args[1:])
 	case "", "-h", "--help", "help":
 		printHelpConfig()
 	default:
 		die("unknown config subcommand: %s. Try: ndf config show", sub)
+	}
+}
+
+// cmdConfigSet handles `ndf config set <key> <value>`.
+//
+// Currently the only supported key is `fieldnotes-repo`; tokens are still
+// set via `ndf login` (the per-developer config has its own ergonomics —
+// hidden prompts, env-var overrides — that don't fit a generic setter).
+//
+// Closes the v2.0.x UX gap where setting a missing fieldnotes_repo on an
+// already-initialized project required hand-editing .ndf.json.
+func cmdConfigSet(args []string) {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		printHelpConfigSet()
+		return
+	}
+	key := args[0]
+	switch key {
+	case "fieldnotes-repo":
+		if len(args) < 2 {
+			die("usage: ndf config set fieldnotes-repo OWNER/REPO")
+		}
+		val := args[1]
+		if err := validateRepoSlug(val); err != nil {
+			die("%v", err)
+		}
+		m, err := loadMarker()
+		if err != nil {
+			die("%v", err)
+		}
+		if m == nil {
+			die("no %s found in current directory. `ndf config set fieldnotes-repo` only works inside an ndf project — run `ndf init --fieldnotes-repo=%s` from a fresh project, or cd into an existing one.", projectMarker, val)
+		}
+		m.FieldnotesRepo = val
+		if err := writeMarker(m); err != nil {
+			die("write marker: %v", err)
+		}
+		ok("fieldnotes_repo set to %s in %s. Commit this so coworkers pick it up automatically.", val, projectMarker)
+	case "framework-pat", "fieldnotes-pat", "token", "fieldnotes-token":
+		die("tokens are set via `ndf login`, not `ndf config set`. Run `ndf login` (interactive) or pass --token / --fieldnotes-token flags.")
+	default:
+		die("unknown config key: %s. Supported: fieldnotes-repo", key)
 	}
 }
 

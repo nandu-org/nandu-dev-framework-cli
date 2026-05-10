@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 )
 
 // Marker is the per-project pinning + checksum file (.ndf.json).
@@ -106,4 +107,21 @@ func stringPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// repoSlugRE enforces the OWNER/REPO shape of a GitHub slug. Compiled once
+// at init time. Matches the character classes GitHub itself permits:
+// letters, digits, period, underscore, hyphen, on each side of the slash.
+var repoSlugRE = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
+
+// validateRepoSlug enforces OWNER/REPO shape on field-notes repo identifiers.
+// Rejects leading/trailing whitespace, multiple slashes, empty halves, and
+// any character outside the GitHub-permitted set. Used in three places —
+// `ndf init --fieldnotes-repo=...` flag input, the interactive prompt at
+// init time, and `ndf config set fieldnotes-repo OWNER/REPO`.
+func validateRepoSlug(s string) error {
+	if !repoSlugRE.MatchString(s) {
+		return fmt.Errorf("expected OWNER/REPO (e.g. nandu-org/Vera-FieldNotes), got %q", s)
+	}
+	return nil
 }

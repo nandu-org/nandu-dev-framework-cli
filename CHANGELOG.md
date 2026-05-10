@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.1.0 — 2026-05-10
+
+**Closes a UX gap around the per-project `fieldnotes_repo`.** No framework version bump, no manifest change, no breaking change.
+
+### What's new
+
+- **`ndf init` prompts for `--fieldnotes-repo` when omitted.** TTY-only — empty input keeps the existing warn-and-continue path, and CI / piped stdin behaves exactly as before (no hang, warning still emitted). The prompt mirrors how `ndf login` already prompts for missing tokens.
+- **New subcommand `ndf config set fieldnotes-repo OWNER/REPO`.** Sets or updates the field-notes repo on an already-initialized project, replacing the previous "hand-edit `.ndf.json`" workaround. Must be run inside an ndf project (refuses with a clear hint otherwise).
+- **Repo-slug validation.** All three input paths (`--fieldnotes-repo` flag, init prompt, `ndf config set` argument) now validate the value matches `OWNER/REPO` shape before persisting. Malformed input is rejected with an actionable error message.
+
+### Why
+
+Tokens get prompt-when-missing treatment in `ndf login`; the per-project `fieldnotes_repo` deliberately did not. Both are required for `/field-note` to work, so the asymmetry caused fresh installs to land in a half-configured state — tokens set, repo missing, no obvious recovery path. Setting the repo on an already-initialized project required hand-editing `.ndf.json`. v2.1.0 closes both gaps.
+
+### Compatibility
+
+- Existing scripts that pass `--fieldnotes-repo=<owner/repo>` are unaffected — flag values short-circuit the prompt.
+- Existing CI pipelines that don't pass the flag continue to see the warning at end of init; behavior preserved exactly.
+- Existing `.ndf.json` files are read and written with the same schema. No marker schema change.
+
+---
+
 ## v2.0.1 — 2026-05-09
 
 **Bug fix.** Fixes a config-path regression in v2.0.0 that prevented the Go binary from reading existing v1.x config files on macOS.

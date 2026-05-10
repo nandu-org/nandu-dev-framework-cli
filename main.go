@@ -17,6 +17,10 @@
 //	ndf config show
 //	    Print the resolved config with PATs masked.
 //
+//	ndf config set fieldnotes-repo OWNER/REPO
+//	    Set the project's field-notes repo on an already-initialized project.
+//	    Persists to .ndf.json (per-project, committed).
+//
 // After a non-no-op update, ndf prints a team handoff message — a paste-ready
 // block summarizing version bump, changes, and what coworkers need to do
 // (git pull, merge main, /compact).
