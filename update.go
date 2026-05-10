@@ -214,10 +214,19 @@ func cmdUpdate(args []string) {
 	// The handoff tells coworkers to `git pull`; if our changes aren't
 	// pushed yet, the handoff is premature. The bash CLI added this in
 	// v1.2.1; we preserve the same prompt-default-yes behavior.
-	offerCommitAndPush(manifest.Version, changes, len(manifest.Migrations))
+	//
+	// migrationCount=0: the migration gate did NOT fire on this run. By
+	// the time we reach this line, either there were no migrations in the
+	// manifest, or every migration's sentinel was already present (gate
+	// skipped). The gate-fired path returns early above. Passing
+	// len(manifest.Migrations) here was the v2.1.0 bug — manifest entries
+	// stay forever per the maintainer skill, so it always reported a
+	// non-zero count and the handoff/commit prompts incorrectly warned
+	// about a structural migration on every update past v3.2.0.
+	offerCommitAndPush(manifest.Version, changes, 0)
 
 	// ---- team handoff message ----
-	printTeamHandoff(currentVersion, manifest.Version, changes, len(manifest.Migrations))
+	printTeamHandoff(currentVersion, manifest.Version, changes, 0)
 }
 
 // pendingMigrationsFromManifest walks manifest.Migrations and returns those

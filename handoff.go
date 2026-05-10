@@ -13,6 +13,10 @@ import (
 //
 // If the user declines, we print the manual commands they should run before
 // pasting the handoff to chat.
+//
+// migrationCount: see printTeamHandoff's docstring. From cmdUpdate's main
+// path, this is always 0 — the gate-fired path returns early before
+// reaching here.
 func offerCommitAndPush(targetVersion string, changes []change, migrationCount int) {
 	projDir := os.Getenv("CLAUDE_PROJECT_DIR")
 	if projDir == "" {
@@ -77,6 +81,15 @@ func offerCommitAndPush(targetVersion string, changes []change, migrationCount i
 //
 // Format is exactly preserved from the bash CLI — coworkers learn to
 // recognize this shape, and we deliberately don't drift.
+//
+// migrationCount semantics: the number of structural migrations that
+// fired on THIS update run (i.e., specs that needed /ndf-migrate to be
+// run before file-level changes could land). NOT the total number of
+// migrations in the manifest — manifest entries stay forever per the
+// maintainer skill's "specs stay in the manifest indefinitely" rule.
+// Passing len(manifest.Migrations) here is wrong; it was the v2.1.0 bug
+// fixed in v2.1.1. From cmdUpdate's main path, this is always 0 because
+// the gate-fired path returns early before reaching here.
 func printTeamHandoff(fromV, toV string, changes []change, migrationCount int) {
 	if len(changes) == 0 && migrationCount == 0 {
 		return

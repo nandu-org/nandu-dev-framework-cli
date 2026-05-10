@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.1.1 — 2026-05-10
+
+**Bug fix.** The team handoff message and the commit-and-push prompt no longer warn about a structural migration when no migration was triggered on this run.
+
+### Fixed
+
+- **Sentinel-aware handoff and commit prompt.** Previously, every `ndf update` against a project past v3.2.0 printed *"⚠️ THIS UPDATE INCLUDES A STRUCTURAL MIGRATION. After merging main, run /ndf-migrate in Claude Code"* — even when the migration gate was skipped because all migrations in the manifest were already applied. The CLI was reading the *total* count of migrations in the manifest, not the *pending* count for this run. Manifest entries stay forever (so old migrations stay listed indefinitely for clients catching up across version jumps), so the warning fired on every update for every client whose project had already been migrated. v2.1.1 reads the per-run gate-fired signal correctly: zero pending migrations → no warning, no extra "run /ndf-migrate" line in the handoff.
+- The same fix applies to the inline `[Y/n] Commit and push these changes now?` prompt — it no longer treats "manifest has migration entries" as "we triggered a migration this run".
+
+### Compatibility
+
+- No behavior change for cases where a migration genuinely fires (the warning still appears on the run that delivers a fresh migration).
+- No file-format or marker-schema change. v1.x and v2.0.x clients can run side-by-side; the bug-fix is purely in CLI output formatting on the post-update path.
+
+### Companion fix
+
+This pairs with framework v3.5.1 (released the same day): `/ndf-migrate` now exits cleanly when invoked with no pending migration. The two together close a confusion loop where users saw the misleading handoff, ran `/ndf-migrate`, and got an unfriendly halt. Either fix alone makes the situation safer; both together close the loop end-to-end.
+
+---
+
 ## v2.1.0 — 2026-05-10
 
 **Closes a UX gap around the per-project `fieldnotes_repo`.** No framework version bump, no manifest change, no breaking change.
