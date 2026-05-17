@@ -8,18 +8,29 @@
 #   1. build       — matrix cross-compile on ubuntu-latest (4 binaries)
 #   2. sign-windows — runs on windows-latest; downloads the Windows artifact,
 #                     signs it with Azure Artifact Signing (formerly Trusted
-#                     Signing), and re-uploads the signed version. macOS
-#                     signing pending Apple Developer Program approval and
-#                     will be added as a parallel sign-macos job later.
-#   3. release     — downloads all (signed where applicable) artifacts,
+#                     Signing), and re-uploads the signed version.
+#   3. sign-macos   — runs on macos-latest; downloads both darwin artifacts,
+#                     codesigns with Developer ID Application (hardened
+#                     runtime + secure timestamp), submits to Apple notary
+#                     service via notarytool, and re-uploads. macOS raw
+#                     Mach-O binaries cannot be stapled (xcrun stapler
+#                     requires a bundle/dmg/pkg) — Gatekeeper's first-run
+#                     check queries Apple's notary CDN online, which is
+#                     fine for our install paths (curl one-liners,
+#                     Homebrew). Subsequent runs of the same binary are
+#                     cached locally.
+#   4. release     — downloads all (signed where applicable) artifacts,
 #                    computes sha256 checksums, creates the GitHub Release.
+#
+# sign-windows and sign-macos run in parallel — both `needs: build`, both
+# block `release`.
 #
 # Triggered by:  git tag v2.0.0 && git push origin v2.0.0
 #
 # Outputs in the release:
-#   ndf-darwin-arm64       — macOS Apple Silicon (UNSIGNED until v2.0.2+)
-#   ndf-darwin-amd64       — macOS Intel        (UNSIGNED until v2.0.2+)
-#   ndf-linux-amd64        — Linux x86_64       (unsigned; signing N/A)
+#   ndf-darwin-arm64       — macOS Apple Silicon (Developer ID signed + notarized)
+#   ndf-darwin-amd64       — macOS Intel        (Developer ID signed + notarized)
+#   ndf-linux-amd64        — Linux x86_64       (unsigned; no Linux equivalent)
 #   ndf-windows-amd64.exe  — Windows x86_64     (Authenticode-signed)
 #   checksums.txt          — sha256(filename) per line, computed AFTER signing
 
@@ -122,8 +133,124 @@ jobs:
           path: ./bin/ndf-windows-amd64.exe
           overwrite: true
 
+  sign-macos:
+    name: sign macOS binaries (Developer ID + notarize)
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - name: download unsigned darwin binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ndf-darwin-*
+          path: ./bin
+          merge-multiple: true
+
+      - name: import Developer ID Application certificate
+        env:
+          P12_BASE64: ${{ secrets.APPLE_DEV_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.APPLE_DEV_ID_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          # Temp keychain so we don't pollute the runner's login keychain.
+          # The runner is destroyed at job end, but defense-in-depth.
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Decode p12 (base64-encoded in the secret), import, then delete the
+          # decoded file. The cert + private key live only in the temp keychain
+          # for the lifetime of this job.
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          echo "$P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign
+          rm "$CERT_PATH"
+
+          # Add the temp keychain to the user's search list so codesign finds
+          # the identity automatically.
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychain -d user | tr -d '"')
+
+          # Allow codesign to use the private key without an interactive prompt
+          # (the runner has no UI; without this, codesign hangs waiting for
+          # keychain access approval).
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Sanity check — the identity should show up.
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: codesign darwin binaries (hardened runtime + secure timestamp)
+        run: |
+          set -euo pipefail
+          IDENTITY="Developer ID Application: Nandu.ai GmbH (M43MMPX4K7)"
+          for binary in ndf-darwin-arm64 ndf-darwin-amd64; do
+            echo "::group::sign $binary"
+            codesign --sign "$IDENTITY" \
+              --options runtime \
+              --timestamp \
+              --force \
+              --verbose=2 \
+              "./bin/$binary"
+            codesign --verify --verbose=2 "./bin/$binary"
+            echo "::endgroup::"
+          done
+
+      - name: submit to Apple notary service
+        env:
+          APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
+          TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
+          NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # notarytool requires zip/dmg/pkg — it won't accept raw Mach-O.
+          # Notarization is recorded server-side against the binary's hash;
+          # the zip is purely a transport envelope. We discard it after.
+          # The binary on disk is unchanged by notarization.
+          for binary in ndf-darwin-arm64 ndf-darwin-amd64; do
+            echo "::group::notarize $binary"
+            (cd ./bin && zip "$binary.zip" "$binary")
+
+            xcrun notarytool submit "./bin/$binary.zip" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$TEAM_ID" \
+              --password "$NOTARIZATION_PASSWORD" \
+              --wait
+
+            rm "./bin/$binary.zip"
+            echo "::endgroup::"
+          done
+
+      - name: clean up keychain
+        if: always()
+        run: |
+          # Defense-in-depth — runner is ephemeral but explicit deletion
+          # avoids any keychain file lingering in cached layers.
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+      - name: re-upload signed darwin/arm64
+        uses: actions/upload-artifact@v4
+        with:
+          name: ndf-darwin-arm64
+          path: ./bin/ndf-darwin-arm64
+          overwrite: true
+
+      - name: re-upload signed darwin/amd64
+        uses: actions/upload-artifact@v4
+        with:
+          name: ndf-darwin-amd64
+          path: ./bin/ndf-darwin-amd64
+          overwrite: true
+
   release:
-    needs: [build, sign-windows]
+    needs: [sign-windows, sign-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -136,8 +263,10 @@ jobs:
         run: |
           # Compute sha256 over every artifact after signing. We deliberately
           # do NOT carry checksums forward from the build job — the Windows
-          # binary changes after signing, so its pre-signing sha256 would
-          # mislead anyone verifying their download against checksums.txt.
+          # binary changes after Authenticode signing, and the macOS binaries
+          # change after codesign embeds the CMS signature blob. Pre-signing
+          # sha256s would mislead anyone verifying their download against
+          # checksums.txt.
           sha256sum ndf-* > checksums.txt
           cat checksums.txt
           ls -la

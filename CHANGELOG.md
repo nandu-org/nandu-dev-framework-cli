@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.1.3 — 2026-05-17
+
+**Distribution-only release.** Source identical to v2.1.2. First release where both macOS and Windows binaries are signed.
+
+### Distribution
+
+- **macOS binaries are now Developer ID-signed and Apple-notarized.** `ndf-darwin-arm64` and `ndf-darwin-amd64` carry a Developer ID Application signature from `Nandu.ai GmbH` (Team ID `M43MMPX4K7`), use the hardened runtime, and have been submitted to Apple's notary service. Gatekeeper no longer shows the "cannot verify developer" prompt on first run — `ndf` installs and runs without any prompt. Existing macOS users get the signed binaries automatically on `brew upgrade nandu-org/tap/ndf` or the next `install.sh` re-run.
+- **Windows binary remains Authenticode-signed** (unchanged from v2.1.2 — same publisher, Azure Artifact Signing Public Trust).
+- **No source change.** v2.1.2 and v2.1.3 differ only in the signature bytes on the four signed binaries (both darwin binaries and the windows binary). The linux binary is unchanged.
+
+### What this closes
+
+- The "First-run prompts (current releases are unsigned)" warning block in README.md is now obsolete and has been removed.
+- Both signing applications (Apple Developer Program, Azure Artifact Signing) from the v2.0.0 ship plan are complete.
+- winget submission is now unblocked.
+
+---
+
 ## v2.1.2 — 2026-05-10
 
 **Distribution-only release.** Source identical to v2.1.1. First release with a signed Windows binary.
