@@ -4,19 +4,24 @@
 # windows/amd64 and uploads them to a new GitHub Release alongside a
 # checksums.txt file.
 #
+# Pipeline stages:
+#   1. build       — matrix cross-compile on ubuntu-latest (4 binaries)
+#   2. sign-windows — runs on windows-latest; downloads the Windows artifact,
+#                     signs it with Azure Artifact Signing (formerly Trusted
+#                     Signing), and re-uploads the signed version. macOS
+#                     signing pending Apple Developer Program approval and
+#                     will be added as a parallel sign-macos job later.
+#   3. release     — downloads all (signed where applicable) artifacts,
+#                    computes sha256 checksums, creates the GitHub Release.
+#
 # Triggered by:  git tag v2.0.0 && git push origin v2.0.0
 #
-# Why one job with a build matrix instead of a separate job per OS:
-# - Cross-compiling Go is trivial; we don't need native runners.
-# - One job means one set of upload steps; the release object is built
-#   incrementally with softprops/action-gh-release using append semantics.
-#
 # Outputs in the release:
-#   ndf-darwin-arm64       — macOS Apple Silicon
-#   ndf-darwin-amd64       — macOS Intel
-#   ndf-linux-amd64        — Linux x86_64
-#   ndf-windows-amd64.exe  — Windows x86_64
-#   checksums.txt          — sha256(filename) per line
+#   ndf-darwin-arm64       — macOS Apple Silicon (UNSIGNED until v2.0.2+)
+#   ndf-darwin-amd64       — macOS Intel        (UNSIGNED until v2.0.2+)
+#   ndf-linux-amd64        — Linux x86_64       (unsigned; signing N/A)
+#   ndf-windows-amd64.exe  — Windows x86_64     (Authenticode-signed)
+#   checksums.txt          — sha256(filename) per line, computed AFTER signing
 
 name: release
 
@@ -27,6 +32,7 @@ on:
 
 permissions:
   contents: write  # required to create releases
+  id-token: write  # reserved for future OIDC auth to Azure (currently using SP secret)
 
 jobs:
   build:
@@ -66,18 +72,58 @@ jobs:
           go build -trimpath -ldflags="-s -w -X main.CLIVersion=${GITHUB_REF_NAME#v}" -o "${{ matrix.artifact }}" .
           ls -la "${{ matrix.artifact }}"
 
-      - name: checksum
-        run: sha256sum "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
-
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            ${{ matrix.artifact }}
-            ${{ matrix.artifact }}.sha256
+          path: ${{ matrix.artifact }}
+
+  sign-windows:
+    name: sign Windows binary (Azure Artifact Signing)
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - name: download unsigned Windows binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ndf-windows-amd64.exe
+          path: ./bin
+
+      - name: Azure Artifact Signing (Public Trust)
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}\bin
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: "Nandu Development Framework CLI"
+          description-url: "https://github.com/nandu-org/nandu-dev-framework-cli"
+
+      - name: verify signature
+        shell: pwsh
+        run: |
+          Get-AuthenticodeSignature ./bin/ndf-windows-amd64.exe | Format-List
+          $sig = Get-AuthenticodeSignature ./bin/ndf-windows-amd64.exe
+          if ($sig.Status -ne 'Valid') {
+            Write-Error "Signature status is $($sig.Status); aborting."
+            exit 1
+          }
+
+      - name: re-upload signed Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ndf-windows-amd64.exe
+          path: ./bin/ndf-windows-amd64.exe
+          overwrite: true
 
   release:
-    needs: build
+    needs: [build, sign-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -85,11 +131,15 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: assemble checksums.txt
+      - name: compute checksums
         working-directory: dist
         run: |
-          cat *.sha256 > checksums.txt
-          rm *.sha256
+          # Compute sha256 over every artifact after signing. We deliberately
+          # do NOT carry checksums forward from the build job — the Windows
+          # binary changes after signing, so its pre-signing sha256 would
+          # mislead anyone verifying their download against checksums.txt.
+          sha256sum ndf-* > checksums.txt
+          cat checksums.txt
           ls -la
 
       - name: create release
