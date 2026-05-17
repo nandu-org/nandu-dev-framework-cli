@@ -57,6 +57,25 @@ After install, verify:
 ndf version
 ```
 
+### Verifying the signature (optional)
+
+Releases from v2.1.3 onwards are signed by `Nandu.ai GmbH`. If you want to verify the signature on the binary you installed:
+
+**macOS:**
+```bash
+codesign -dv --verbose=4 $(which ndf) 2>&1 | grep -E "Authority|TeamIdentifier"
+spctl --assess --type execute --verbose $(which ndf)
+```
+The `codesign` output should list `Developer ID Application: Nandu.ai GmbH` in its authority chain, and `spctl` should print `accepted, source=Notarized Developer ID`.
+
+**Windows (PowerShell):**
+```powershell
+Get-AuthenticodeSignature (Get-Command ndf).Source | Format-List
+```
+`Status` should be `Valid` and the signer should be `Nandu.ai GmbH`.
+
+**Linux:** binaries are not signed (no equivalent ecosystem). Verify integrity via `checksums.txt` published with each release.
+
 ## Use
 
 **Joining an existing NDF project (most common case):**
