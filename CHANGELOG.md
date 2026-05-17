@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.1.2 — 2026-05-10
+
+**Distribution-only release.** Source identical to v2.1.1. First release with a signed Windows binary.
+
+### Distribution
+
+- **Windows binary is now Authenticode-signed** via Azure Artifact Signing (Public Trust certificate profile, publisher `Nandu.ai GmbH`). SmartScreen no longer shows "Windows protected your PC" on first run — `ndf.exe` installs and runs without any prompt. Existing Windows users get the signed binary automatically on `scoop update ndf` or the next `install.ps1` re-run.
+- **macOS binaries remain unsigned** in this release (Apple Developer Program enrollment is pending). The one-time Gatekeeper prompt described in the README still applies on first run; this will go away in a later release once the Apple cert lands.
+- **No source change.** v2.1.1 and v2.1.2 produce byte-identical binaries on macOS and Linux. Only `ndf-windows-amd64.exe` differs between the two releases (signature bytes appended).
+
+---
+
 ## v2.1.1 — 2026-05-10
 
 **Bug fix.** The team handoff message and the commit-and-push prompt no longer warn about a structural migration when no migration was triggered on this run.
@@ -17,11 +29,6 @@
 ### Companion fix
 
 This pairs with framework v3.5.1 (released the same day): `/ndf-migrate` now exits cleanly when invoked with no pending migration. The two together close a confusion loop where users saw the misleading handoff, ran `/ndf-migrate`, and got an unfriendly halt. Either fix alone makes the situation safer; both together close the loop end-to-end.
-
-### Distribution
-
-- **Windows binary is now Authenticode-signed** via Azure Artifact Signing (Public Trust certificate profile, publisher `Nandu.ai GmbH`). SmartScreen no longer shows "Windows protected your PC" on first run — `ndf.exe` installs and runs without any prompt. Existing Windows users get the signed binary automatically on `scoop update ndf` or the next `install.ps1` re-run.
-- **macOS binaries remain unsigned** in this release (Apple Developer Program enrollment is pending). The one-time Gatekeeper prompt described in the README still applies on first run; this will go away in a later release once the Apple cert lands.
 
 ---
 
