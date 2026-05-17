@@ -18,6 +18,11 @@
 
 This pairs with framework v3.5.1 (released the same day): `/ndf-migrate` now exits cleanly when invoked with no pending migration. The two together close a confusion loop where users saw the misleading handoff, ran `/ndf-migrate`, and got an unfriendly halt. Either fix alone makes the situation safer; both together close the loop end-to-end.
 
+### Distribution
+
+- **Windows binary is now Authenticode-signed** via Azure Artifact Signing (Public Trust certificate profile, publisher `Nandu.ai GmbH`). SmartScreen no longer shows "Windows protected your PC" on first run — `ndf.exe` installs and runs without any prompt. Existing Windows users get the signed binary automatically on `scoop update ndf` or the next `install.ps1` re-run.
+- **macOS binaries remain unsigned** in this release (Apple Developer Program enrollment is pending). The one-time Gatekeeper prompt described in the README still applies on first run; this will go away in a later release once the Apple cert lands.
+
 ---
 
 ## v2.1.0 — 2026-05-10
