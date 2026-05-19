@@ -9,23 +9,33 @@ import (
 
 // Marker is the per-project pinning + checksum file (.ndf.json).
 //
-// Schema MUST stay byte-compatible with what the bash CLI v1.x writes —
-// every deployed canary (Vera) and any client install on disk has v1.x's
-// JSON layout, and `ndf update` from this v2.x binary needs to read it
-// faithfully on the first run. After the first v2.x update, we re-emit
-// the same shape.
+// Schema is forward-extensible (new optional fields are tolerated by old
+// CLIs that don't know them). v2.2.0 added `project_tag` for migration
+// companion-file routing. v1.x-shaped on-disk markers won't have the
+// field and won't gain it on rewrite unless the maintainer sets it
+// manually; old `Marker`s still read correctly on the first v2.x run,
+// and v2.x writes the same shape with `project_tag` omitted when unset
+// (via `omitempty`).
 //
 //	{
-//	  "version":             "3.3.3",
-//	  "pinned_version":      null | "3.3.3",
+//	  "version":             "4.0.0",
+//	  "pinned_version":      null | "4.0.0",
 //	  "installed_checksums": { "<path>": "<sha256>", ... },
-//	  "fieldnotes_repo":     "owner/repo"   // optional
+//	  "fieldnotes_repo":     "owner/repo",  // optional
+//	  "project_tag":         "vera"         // optional; added in v4.0
 //	}
+//
+// project_tag (v4.0+) lets the framework deliver project-specific companion
+// files (e.g. a canary map for the v3→v4 migration) alongside migration
+// specs. Canary projects (Vera, AMVisor) set this manually; clean-shape
+// clients leave it unset and the migration spec falls through to filename
+// heuristics.
 type Marker struct {
 	Version            string            `json:"version"`
 	PinnedVersion      *string           `json:"pinned_version"` // null when not pinned
 	InstalledChecksums map[string]string `json:"installed_checksums"`
 	FieldnotesRepo     string            `json:"fieldnotes_repo,omitempty"`
+	ProjectTag         string            `json:"project_tag,omitempty"`
 }
 
 // loadMarker reads .ndf.json from cwd. nil + nil if absent.

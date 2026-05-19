@@ -76,6 +76,66 @@ func offerCommitAndPush(targetVersion string, changes []change, migrationCount i
 	ok("pushed to origin/%s", branch)
 }
 
+// migrationHandoffText returns the migration-specific team-handoff text
+// the CLI writes to .ndf-pending-handoff on the gate-fired run, for the
+// migrator to paste into team chat after /ndf-migrate completes and they
+// re-run `ndf update`. Today only v3-to-v4-feature-scoped carries a
+// custom message; other migrations return empty and rely on the standard
+// printTeamHandoff output.
+//
+// Why a per-migration message: the v3→v4 reshape moves planning artifacts
+// from docs/plan/ to .ndf/, which strands any developer who happens to be
+// on a v3-style phase-N/<slug> branch when migration lands on main. The
+// standard handoff ("pull main, /compact") doesn't address that — the
+// migrator's coworkers need branch-recovery instructions.
+//
+// Future extensibility: this dispatcher is the known extension point. A
+// future migration with custom team-handoff text adds a new case here.
+// If the set of custom-handoff migrations grows large, consider moving
+// the text to a companion file shipped alongside the spec (the same
+// mechanism deliverMigrationCompanions already uses for canary maps) so
+// new migrations don't require a CLI release. Until then, hardcoding
+// keeps the v4.0 surface small.
+func migrationHandoffText(migrationName string) string {
+	switch migrationName {
+	case "v3-to-v4-feature-scoped":
+		return v3to4TeamHandoffText
+	}
+	return ""
+}
+
+const v3to4TeamHandoffText = `====================
+TEAM HANDOFF — paste this in your team chat
+====================
+
+The framework migrated from v3 to v4. Planning artifacts moved from
+docs/plan/ to .ndf/. Your local branches may need to be updated.
+
+If you are on main:
+  Run git pull. Your tree now matches the new layout.
+
+If you are on a phase-N/<slug> branch (v3-style):
+  1. Commit any uncommitted work on the phase branch
+  2. git checkout main && git pull
+  3. In Claude Code, run /planning. Describe what you were doing on the
+     phase branch; /planning will set up the work in the new
+     feature/<NNN>-<slug> layout (typically as a new feature; if the
+     work continues an already-shipped phase, mention that so /planning
+     can match it to the archived feature). If the recovery path isn't
+     obvious, reach out to your Nandu contact before proceeding.
+
+If you are on a v4 feature/* branch:
+  Nothing to do — already on the new layout.
+
+If multiple developers had in-flight work on the same phase:
+  Coordinate before any of you runs /planning. Feature numbering is
+  first-come first-served and the slug locks in at re-creation time. If
+  the recovery isn't obvious, reach out to your Nandu contact before
+  proceeding.
+
+====================
+`
+
 // printTeamHandoff produces the paste-ready block for team chat after a
 // non-no-op update. Skipped entirely if nothing changed.
 //

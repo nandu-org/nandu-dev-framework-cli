@@ -149,6 +149,17 @@ func pendingMigrationPath() string {
 	return pendingMigrationMarker
 }
 
+// pendingHandoffPath returns the path to the migration team-handoff marker.
+func pendingHandoffPath() string {
+	return pendingHandoffMarker
+}
+
+// pendingMigrationFilesPath returns the path to a single companion file
+// inside the pending-migration-files directory.
+func pendingMigrationFilesPath(filename string) string {
+	return filepath.Join(pendingMigrationFilesDir, filename)
+}
+
 // migrationSentinelPath returns the path to a single migration's sentinel.
 func migrationSentinelPath(name string) string {
 	return filepath.Join(migrationsSentinelDir, name+".complete")

@@ -23,6 +23,18 @@ const (
 	// /ndf-migrate knows which specs to run.
 	pendingMigrationMarker = ".ndf-pending-migration"
 
+	// pendingHandoffMarker is written by `ndf update` on the gate-fired
+	// run (when a migration spec is being pre-delivered) and consumed on
+	// the next `ndf update` run (after /ndf-migrate has executed the
+	// spec). It carries migration-specific team-handoff text that the
+	// migrator pastes into team chat alongside the standard handoff.
+	pendingHandoffMarker = ".ndf-pending-handoff"
+
+	// pendingMigrationFilesDir holds optional companion files (canary
+	// maps and project-tag-specific YAML) pre-delivered by `ndf update`
+	// alongside a migration spec. The spec reads from this directory.
+	pendingMigrationFilesDir = ".ndf-pending-migration-files"
+
 	// migrationsSentinelDir holds <name>.complete files written by
 	// /ndf-migrate after a migration spec runs successfully.
 	migrationsSentinelDir = ".ndf-migrations"

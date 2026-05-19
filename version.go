@@ -12,10 +12,17 @@ package main
 // dependency the bash CLI carried (bash, jq, awk, sed, diff, sha256sum) in
 // favor of Go stdlib. Adds native Windows support.
 //
+// v2.2.0 — companion-file delivery for migration specs (canary maps land
+// under .ndf-pending-migration-files/), uncommitted-state pre-flight on the
+// gate-fired update path, migration team-handoff marker mechanism
+// (.ndf-pending-handoff) for v3→v4-style messages that need to print on the
+// post-/ndf-migrate re-run, and project_tag field in Marker schema. v4.0
+// framework requires this CLI.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.1.3"
+var CLIVersion = "2.2.0"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"
