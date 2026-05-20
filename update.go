@@ -109,26 +109,17 @@ func cmdUpdate(args []string) {
 		// Tidy up any stale pending-migration marker from older CLI
 		// versions or interrupted /ndf-migrate runs.
 		_ = os.Remove(pendingMigrationPath())
-		// Same for the companion-files directory — /ndf-migrate normally
-		// cleans this up at "After all migrations succeed", but if that
-		// step was interrupted we'd otherwise leak it.
-		_ = os.RemoveAll(pendingMigrationFilesDir)
 	} else if len(pendingMigrations) > 0 {
 		// Pre-flight: working tree must be clean before we touch it.
-		// We're about to write spec files, companion files, and a
-		// marker into the client repo; mixing those with the user's
-		// own uncommitted work would force /ndf-migrate's later
-		// state-check to disentangle them and risks the user losing
-		// changes during the migration commit. Halt early and let the
-		// user commit or stash first. This pre-flight used to live in
-		// /ndf-migrate.md alone — moved here in v4.0 so we never
-		// contaminate a dirty tree in the first place.
+		// We're about to write spec files and a marker into the client
+		// repo; mixing those with the user's own uncommitted work
+		// would force /ndf-migrate's later state-check to disentangle
+		// them and risks the user losing changes during the migration
+		// commit. Halt early and let the user commit or stash first.
+		// This pre-flight used to live in /ndf-migrate.md alone —
+		// moved here in v4.0 so we never contaminate a dirty tree in
+		// the first place.
 		preflightCleanWorkingTreeForMigration()
-
-		// Clear stale companions from any prior gate-fired run (different
-		// project_tag, different migration set, or an interrupted prior
-		// run) so the spec only ever reads files relevant to THIS run.
-		clearStalePendingMigrationFiles()
 
 		info("this release includes %d pending structural migration(s); pre-delivering specs…", len(pendingMigrations))
 		for _, name := range pendingMigrations {
@@ -136,15 +127,6 @@ func cmdUpdate(args []string) {
 			info("  %s", specPath)
 			if err := fetchFileTo(ref, specPath, specPath); err != nil {
 				die("fetch %s: %v", specPath, err)
-			}
-			// Optional companion files for this migration, keyed by the
-			// project's project_tag. Canaries and complex-shape clients
-			// ship a canary map at migrations/<name>.<project_tag>.map.yml
-			// (and optionally a plain companion at .<project_tag>.yml).
-			// Clean-shape clients leave project_tag unset; the spec falls
-			// through to filename heuristics in that case.
-			if marker.ProjectTag != "" {
-				deliverMigrationCompanions(ref, name, marker.ProjectTag)
 			}
 		}
 		// Always re-deliver the slash command; specs may reference its
@@ -247,7 +229,6 @@ func cmdUpdate(args []string) {
 		PinnedVersion:      newPinned,
 		InstalledChecksums: newChecksums,
 		FieldnotesRepo:     marker.FieldnotesRepo, // preserve through update
-		ProjectTag:         marker.ProjectTag,     // preserve through update
 	}
 	if err := writeMarker(newMarker); err != nil {
 		die("write marker: %v", err)
@@ -431,12 +412,15 @@ func copyFile(src, dst string) error {
 // a possibly-dirty tree. The one exception is "not a git repo at all":
 // non-git projects have nothing to preflight against and proceed.
 //
-// Common-confusion path: if .ndf-pending-migration is already on disk
-// from a prior gate-fired run (the user pre-delivered a migration but
-// hasn't run /ndf-migrate yet, and is re-invoking `ndf update`), we
-// halt with a directive to run /ndf-migrate rather than the generic
-// "commit or stash" message — committing the CLI's transient artifacts
-// as the user's own work is the wrong recovery.
+// Re-invocation: re-firing the gate on a subsequent `ndf update` is
+// idempotent — the spec gets re-fetched (overwriting the prior copy)
+// and the .ndf-pending-migration marker gets re-written. v2.2.0 had a
+// short-circuit here that died with "A migration delivery from a prior
+// `ndf update` is already on disk." That short-circuit was removed in
+// v2.3.1 (Billy's 2026-05-20 field-note scenario): the message was
+// misleading when the project's identity tag changed after a prior
+// gate-fired delivery, and re-firing the gate is safer than refusing
+// to do so — it always lands the correct, current spec for THIS run.
 func preflightCleanWorkingTreeForMigration() {
 	projDir := os.Getenv("CLAUDE_PROJECT_DIR")
 	if projDir == "" {
@@ -448,12 +432,6 @@ func preflightCleanWorkingTreeForMigration() {
 	}
 	if !gitIsRepo(projDir) {
 		return // non-git project; nothing to check
-	}
-	// Common-confusion path: prior gate-fired run already delivered the
-	// migration. Tell the user what to do rather than asking them to
-	// "commit or stash" CLI-delivered transient files.
-	if _, err := os.Stat(pendingMigrationPath()); err == nil {
-		die("A migration delivery from a prior `ndf update` is already on disk.\n\nRun /ndf-migrate in Claude Code to apply it, then re-run `ndf update` to complete the file-level changes.")
 	}
 	out, err := gitInRepo(projDir, "status", "--porcelain")
 	if err != nil {
@@ -473,55 +451,6 @@ func indentEachLine(s, prefix string) string {
 		lines[i] = prefix + line
 	}
 	return strings.Join(lines, "\n")
-}
-
-// deliverMigrationCompanions fetches optional project-tag-specific
-// companion files for the given migration. Each candidate is fetched via
-// fetchFileToOptional — 404 is silently skipped (the file simply isn't
-// part of this release for this project_tag). Any other fetch error
-// halts.
-//
-// Candidate filename patterns:
-//   - migrations/<name>.<project_tag>.map.yml  → canary map (v3→v4 spec consumes this)
-//   - migrations/<name>.<project_tag>.yml      → plain companion (for future use)
-//
-// Companions land in .ndf-pending-migration-files/<basename>; the spec
-// reads from that directory.
-func deliverMigrationCompanions(ref, migrationName, projectTag string) {
-	suffixes := []string{".map.yml", ".yml"}
-	for _, sfx := range suffixes {
-		basename := migrationName + "." + projectTag + sfx
-		repoPath := "migrations/" + basename
-		dest := pendingMigrationFilesPath(basename)
-		fetched, err := fetchFileToOptional(ref, repoPath, dest)
-		if err != nil {
-			die("fetch %s: %v", repoPath, err)
-		}
-		if fetched {
-			info("  %s", repoPath)
-		}
-	}
-}
-
-// clearStalePendingMigrationFiles removes the .ndf-pending-migration-files/
-// directory so deliverMigrationCompanions starts fresh. Called once at
-// the top of the gate-fired branch; prevents accumulation from a prior
-// run with a different project_tag or migration set, and prevents stale
-// companion files from poisoning the spec's reads. Errors are ignored —
-// missing directory is normal; permission issues would block writes
-// later and surface there.
-//
-// Safety boundary: this function's guarantee that it only destroys
-// CLI-owned content depends on preflightCleanWorkingTreeForMigration
-// running BEFORE it on the gate-fired branch. Preflight uses
-// `git status --porcelain`, which omits gitignored paths — so if a
-// client (or a future `ndf init` template) gitignores `.ndf-pending-*`,
-// user-placed content under this directory could escape preflight and
-// be destroyed here. Clients MUST NOT gitignore `.ndf-pending-*`; the
-// artifacts are transient and committed-then-deleted in the normal
-// migration flow.
-func clearStalePendingMigrationFiles() {
-	_ = os.RemoveAll(pendingMigrationFilesDir)
 }
 
 // writePendingHandoff writes the migration team-handoff marker if any of

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -95,22 +94,6 @@ func fetchFileTo(ref, repoPath, dest string) error {
 		return fmt.Errorf("rename → %s: %w", dest, err)
 	}
 	return nil
-}
-
-// fetchFileToOptional is the same as fetchFileTo but treats HTTP 404 as
-// "file does not exist on this ref" rather than an error. Returns (true,
-// nil) when fetched, (false, nil) when 404, (false, err) on any other
-// error. Used for optional companion files (canary maps) whose presence
-// depends on whether the maintainer authored one for this project.
-func fetchFileToOptional(ref, repoPath, dest string) (bool, error) {
-	err := fetchFileTo(ref, repoPath, dest)
-	if err == nil {
-		return true, nil
-	}
-	if strings.Contains(err.Error(), "HTTP 404:") {
-		return false, nil
-	}
-	return false, err
 }
 
 // listSemverTags hits the GitHub tags API and returns all v?D.D.D tag names

@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.3.1 — 2026-05-20
+
+**Paired with framework v4.0.2.** Retires the migration-spec companion-file mechanism and removes a stale `ndf update` preflight check.
+
+### What's new
+
+- **Companion-file delivery for migration specs retired.** The `migrations/<name>.<project_tag>.map.yml` companion mechanism introduced in v2.2.0 is removed. The v4.0.2 framework's migration spec now self-authors the canary map at `/ndf-migrate` time by reading the project's own `docs/plan/` state, so the CLI no longer pre-fetches per-project YAML alongside the spec. The `ProjectTag` field on the `.ndf.json` marker is removed in lockstep.
+- **`ndf update` preflight short-circuit removed.** The `.ndf-pending-migration` existence check that previously refused re-delivery when a prior gate-fired run was incomplete is gone. Re-firing the gate is now idempotent — safer than the old short-circuit, whose recovery message ("run `/ndf-migrate` instead") was misleading when companion files needed re-fetching.
+
+### Compatibility
+
+- **No breaking changes for clean-shape clients.** v4.0.x clients without canary-shape v3 state continue to work unchanged.
+- Framework v4.0.2 bumps `min_cli_version` to `2.3.1` so clients running the v3→v4 migration don't accidentally use CLI v2.2.0's removed `clearStalePendingMigrationFiles` path mid-walk.
+
+### Paired framework release
+
+Framework v4.0.2 ships alongside this CLI release with the self-authoring migration spec described above. Update the CLI first (`ndf self-update`), then run `ndf update` to pick up the framework patch.
+
+---
+
 ## v2.3.0 — 2026-05-20
 
 **`ndf self-update` subcommand.** Distinguishes updating the `ndf` CLI binary from `ndf update` (which updates the framework files in a project).

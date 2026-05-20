@@ -90,12 +90,11 @@ func offerCommitAndPush(targetVersion string, changes []change, migrationCount i
 // migrator's coworkers need branch-recovery instructions.
 //
 // Future extensibility: this dispatcher is the known extension point. A
-// future migration with custom team-handoff text adds a new case here.
-// If the set of custom-handoff migrations grows large, consider moving
-// the text to a companion file shipped alongside the spec (the same
-// mechanism deliverMigrationCompanions already uses for canary maps) so
-// new migrations don't require a CLI release. Until then, hardcoding
-// keeps the v4.0 surface small.
+// future migration with custom team-handoff text adds a new case to the
+// switch below. Hardcoding the text here keeps the CLI surface small;
+// if the set of custom-handoff migrations grows past a handful, this
+// is the natural place to factor it out (e.g. into a map or a
+// per-migration file shipped via the manifest).
 func migrationHandoffText(migrationName string) string {
 	switch migrationName {
 	case "v3-to-v4-feature-scoped":

@@ -171,9 +171,6 @@ func cmdConfigShow() {
 		if m.FieldnotesRepo != "" {
 			fmt.Println("  fieldnotes_repo: " + m.FieldnotesRepo)
 		}
-		if m.ProjectTag != "" {
-			fmt.Println("  project_tag:     " + m.ProjectTag)
-		}
 	} else {
 		fmt.Println("(not currently in an NDF project — no .ndf.json in cwd)")
 	}

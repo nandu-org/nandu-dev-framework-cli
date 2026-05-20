@@ -9,33 +9,28 @@ import (
 
 // Marker is the per-project pinning + checksum file (.ndf.json).
 //
-// Schema is forward-extensible (new optional fields are tolerated by old
-// CLIs that don't know them). v2.2.0 added `project_tag` for migration
-// companion-file routing. v1.x-shaped on-disk markers won't have the
-// field and won't gain it on rewrite unless the maintainer sets it
-// manually; old `Marker`s still read correctly on the first v2.x run,
-// and v2.x writes the same shape with `project_tag` omitted when unset
-// (via `omitempty`).
+// Schema:
 //
 //	{
 //	  "version":             "4.0.0",
 //	  "pinned_version":      null | "4.0.0",
 //	  "installed_checksums": { "<path>": "<sha256>", ... },
-//	  "fieldnotes_repo":     "owner/repo",  // optional
-//	  "project_tag":         "vera"         // optional; added in v4.0
+//	  "fieldnotes_repo":     "owner/repo"   // optional
 //	}
 //
-// project_tag (v4.0+) lets the framework deliver project-specific companion
-// files (e.g. a canary map for the v3→v4 migration) alongside migration
-// specs. Canary projects (Vera, AMVisor) set this manually; clean-shape
-// clients leave it unset and the migration spec falls through to filename
-// heuristics.
+// History: v2.2.0 added a project-identity field that drove
+// migration-companion file routing (a canary map keyed off the tag,
+// delivered by the CLI alongside the migration spec). v2.3.1 removed
+// the field cleanly — the canary-map mechanism is now self-authored by
+// the migration spec at /ndf-migrate time, so the CLI no longer needs
+// project identity in the marker. Old on-disk markers that still
+// carry the field are tolerated (JSON unmarshal ignores unknown
+// fields) and the field drops off on the next rewrite via writeMarker.
 type Marker struct {
 	Version            string            `json:"version"`
 	PinnedVersion      *string           `json:"pinned_version"` // null when not pinned
 	InstalledChecksums map[string]string `json:"installed_checksums"`
 	FieldnotesRepo     string            `json:"fieldnotes_repo,omitempty"`
-	ProjectTag         string            `json:"project_tag,omitempty"`
 }
 
 // loadMarker reads .ndf.json from cwd. nil + nil if absent.
