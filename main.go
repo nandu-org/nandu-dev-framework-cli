@@ -14,6 +14,10 @@
 //	ndf update      [--version=<x.y.z>] [--latest]
 //	    Update an existing NDF project to the target framework version.
 //
+//	ndf self-update
+//	    Print channel-aware instructions for updating the ndf CLI itself.
+//	    Does not replace the binary — keeps package-manager state authoritative.
+//
 //	ndf config show
 //	    Print the resolved config with PATs masked.
 //
@@ -56,6 +60,8 @@ func main() {
 		cmdLogin(args)
 	case "update":
 		cmdUpdate(args)
+	case "self-update":
+		cmdSelfUpdate(args)
 	case "config":
 		cmdConfig(args)
 	case "version", "--version", "-v":

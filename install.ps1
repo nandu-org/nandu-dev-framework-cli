@@ -14,10 +14,9 @@
 #   - No admin rights required — installs into per-user %LOCALAPPDATA%.
 #   - Adds to user PATH (HKCU), not system PATH (HKLM). Restart terminal
 #     after install for the PATH change to take effect.
-#   - Until v2.0.0 binaries are signed, Windows SmartScreen will prompt
-#     once on first run ("More info → Run anyway"). v2.0.1 will be signed
-#     under nandu.ai GmbH's Authenticode certificate; the prompt disappears
-#     thereafter.
+#   - Windows binaries are Authenticode-signed by nandu.ai GmbH from
+#     v2.1.2 onward (Azure Artifact Signing, Public Trust). SmartScreen
+#     does not prompt on first run for signed builds.
 
 $ErrorActionPreference = "Stop"
 
@@ -130,6 +129,5 @@ Write-Host "  2) ndf version              (verify install)"
 Write-Host "  3) ndf login                (set your tokens — interactive, hidden input)"
 Write-Host "  4) cd <project>; ndf init --fieldnotes-repo=<owner/repo>"
 Write-Host ""
-Write-Host "First-run note: Windows SmartScreen may show 'Windows protected your"
-Write-Host "PC' the first time you run ndf.exe. Click 'More info' then 'Run anyway'."
-Write-Host "v2.0.1 will be code-signed; this prompt will disappear after that update."
+Write-Host "To update ndf later, run: ndf self-update"
+Write-Host ""

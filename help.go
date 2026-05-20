@@ -75,12 +75,31 @@ func printHelpUpdate() {
 
 Update the framework files in the current ndf project.
 
+Note: ` + "`ndf update`" + ` updates the framework FILES in your project. To update the
+` + "`ndf`" + ` CLI binary itself, run ` + "`ndf self-update`" + `.
+
 Flags:
   --version=<x.y.z>   Set the project's pinned_version to X and update to it.
   --latest            Clear the pinned_version and update to the latest tag.
                       (Mutually exclusive with --version.)
 
 With no flags, updates to the project's pinned_version (or latest if no pin).`)
+}
+
+func printHelpSelfUpdate() {
+	rawErr(`Usage: ndf self-update
+
+Print channel-aware instructions for updating the ` + "`ndf`" + ` CLI binary itself.
+
+Detects the install channel from the binary's path (Homebrew, Scoop, install.sh,
+install.ps1) and prints the matching update command. Falls back to listing all
+channels if detection is ambiguous (manual download, build from source).
+
+Does NOT replace the binary in place: package-manager state would diverge from
+on-disk state and break the next ` + "`brew upgrade`" + ` / ` + "`scoop update`" + `.
+
+To update the framework FILES in your project (distinct from updating the CLI),
+use ` + "`ndf update`" + `.`)
 }
 
 func printHelp() {
@@ -91,7 +110,8 @@ Usage: ndf <command> [flags]
 Commands:
   init           Scaffold a NEW ndf project in the current directory
   login          Set per-developer credentials (interactive by default)
-  update         Update an existing ndf project to a target framework version
+  update         Update the framework files in an existing ndf project
+  self-update    Print instructions for updating the ndf CLI binary itself
   config show    Print the resolved config (per-developer + per-project), PATs masked
   config set     Set a config key (currently: fieldnotes-repo OWNER/REPO)
   version        Print the CLI version

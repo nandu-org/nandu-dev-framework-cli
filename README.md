@@ -123,6 +123,30 @@ When a release includes a structural migration, `ndf update` pre-delivers the mi
 
 After a non-no-op update, `ndf update` prints a **team handoff message** — a paste-ready block summarizing the version bump, what changed, and what coworkers need to do (`git pull`, `git merge main`, `/compact`). Designed for the updater to drop into team chat. See METHODOLOGY.md's "Framework updates during active development" section for the multi-developer workflow.
 
+## Update the CLI
+
+`ndf update` updates the **framework files in a project**; it does NOT update the `ndf` CLI binary itself. To update the CLI, run:
+
+```bash
+ndf self-update
+```
+
+`ndf self-update` detects how this binary was installed (Homebrew, Scoop, install.sh, install.ps1) and prints the matching update command. It does **not** replace the binary in place — running `brew` / `scoop` / the install one-liner keeps your package manager's recorded state in sync with what's on disk.
+
+The commands `ndf self-update` will surface, depending on your install channel:
+
+| Install channel | Update command |
+|---|---|
+| Homebrew (macOS) | `brew upgrade nandu-org/tap/ndf` |
+| Scoop (Windows) | `scoop update ndf` |
+| `install.sh` (macOS / Linux) | re-run `curl -fsSL https://raw.githubusercontent.com/nandu-org/nandu-dev-framework-cli/main/install.sh \| bash` (idempotent) |
+| `install.ps1` (Windows) | re-run `iwr -useb https://raw.githubusercontent.com/nandu-org/nandu-dev-framework-cli/main/install.ps1 \| iex` (idempotent) |
+| Manual download | grab the new binary from <https://github.com/nandu-org/nandu-dev-framework-cli/releases> |
+
+After updating, verify with `ndf version`.
+
+> **`ndf update` vs `ndf self-update`:** `update` for the framework files in your project; `self-update` for the CLI itself. The two verbs point at each other from their help text.
+
 ## Requirements
 
 `ndf` itself has **no runtime dependencies** — single static binary. The only external tool it shells out to is `git`, and only when offering to commit + push framework changes after `ndf update`. If `git` isn't on `$PATH`, `ndf update` still completes; it just skips the optional auto-commit step.

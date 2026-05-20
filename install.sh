@@ -173,10 +173,12 @@ if [[ "$ndf_on_path" -eq 1 ]] && command -v ndf >/dev/null 2>&1; then
   ndf version
   echo ""
   _info "ndf is ready. Next: run \`ndf login\` to set your tokens, then \`cd <project> && ndf init --fieldnotes-repo=<owner/repo>\`."
+  _info "To update ndf later, run: ndf self-update"
 else
   _info "install complete. To use ndf in this shell, run:"
   echo ""
   echo "  exec \$SHELL -l"
   echo ""
   _info "Or open a new terminal. Then verify with: ndf version"
+  _info "To update ndf later, run: ndf self-update"
 fi

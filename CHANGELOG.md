@@ -1,5 +1,54 @@
 # Changelog
 
+## v2.3.0 — 2026-05-20
+
+**`ndf self-update` subcommand.** Distinguishes updating the `ndf` CLI binary from `ndf update` (which updates the framework files in a project).
+
+### What's new
+
+- **`ndf self-update`** — new subcommand that prints channel-aware instructions for updating the CLI itself. Detects the install channel from the binary's path (Homebrew, Scoop, install.sh, install.ps1) and surfaces the matching update command. Falls back to listing all channels if detection is ambiguous (manual download, build from source). Does not replace the binary in place.
+- **`ndf update --help` cross-references `ndf self-update`.** The two verbs now point at each other so the right one is always one step away.
+- **`min_cli_version` halt message** now points at `ndf self-update` for the update path on v2.3.0+ binaries (the message text is baked into each binary, so users still on v2.2.0 or earlier will continue to see the previous "re-run the install one-liner from the onboarding email" wording until they update once).
+- **`install.sh` and `install.ps1` post-install output** prints a one-line "To update ndf later, run: ndf self-update" pointer so first-time installers discover the verb before they need it.
+
+### Compatibility
+
+- No file-format or marker-schema change. No new flags on existing subcommands.
+- `min_cli_version` unchanged.
+- Pure additive: existing scripts and CI workflows are unaffected.
+
+### Paired framework release
+
+Framework v4.0.1 ships alongside this CLI release with a `METHODOLOGY.md` fix that now points at `ndf self-update` (with an explicit older-CLI fallback for clients still on v2.2.0). If you're on framework v4.0.0, running `ndf update` after updating the CLI will pick up the patch with a small expected diff in `METHODOLOGY.md`.
+
+---
+
+## v2.2.0 — 2026-05-20
+
+> **Backfill note (2026-05-20):** v2.2.0 was tagged and shipped in mid-May 2026 alongside framework v4.0.0; the CHANGELOG entry below is documented here for completeness. If you already have CLI v2.2.0 installed, these capabilities have been live since you first updated to framework v4.0.0 — nothing changes on your end with this backfill.
+
+**Paired with framework v4.0.0.** Five new capabilities required by the v3→v4 migration spec, designed to be reusable by future migrations.
+
+### What's new
+
+- **Uncommitted-state pre-flight on the gate-fired path.** `ndf update` now halts before writing any framework file when a migration is about to be delivered and the working tree is dirty. The check moved here from `/ndf-migrate.md` so framework files never land on a dirty tree in the first place. Halts on `git status` errors and cwd-lookup errors too (silent fail-open would risk contaminating a possibly-dirty tree). Detects `.ndf-pending-migration` already on disk and routes the user to `/ndf-migrate` rather than the generic "commit or stash" message.
+- **Companion-file delivery for migration specs.** Migration-bearing updates can now pre-deliver optional per-project YAML companions alongside the spec. When the project's `.ndf.json` has a `project_tag` set, `ndf update` fetches `migrations/<name>.<project_tag>.map.yml` and `migrations/<name>.<project_tag>.yml` from the framework repo at gate-fired-update time and lands them at `.ndf-pending-migration-files/<basename>` for `/ndf-migrate` to read. Companions are optional — 404s are silently skipped.
+- **Migration team-handoff marker.** Migration-bearing `ndf update` writes `.ndf-pending-handoff` at the end of the gate-fired run; the next `ndf update` (post-migration) reads it, prints a migration-specific team-handoff message exactly once, and removes the file. Concatenated across multiple pending migrations so clients catching up through several version jumps get one combined message.
+- **`project_tag` field on `.ndf.json`.** Per-project marker field (committed) that the companion-file fetcher keys on. Optional (`omitempty`); unset by default. Per-developer config remains for tokens and global preferences. `ndf config show` now prints `project_tag` when set, symmetric with `fieldnotes_repo`.
+- **`min_cli_version` enforcement edge.** Older CLIs running against the v4.0 framework manifest produce a clear "CLI too old" upgrade message (the v4.0 manifest's `min_cli_version` is `2.2.0`).
+
+### Compatibility
+
+- **Old CLIs reading new files:** unknown fields are ignored (`omitempty` posture).
+- **New CLIs reading old files:** absent fields read as the zero value; companion fetch skipped when `project_tag` is empty; `consumePendingHandoff` on a tree with no marker is a no-op.
+- v2.2.0 against v3.x manifests degrades gracefully — no migrations in the array, none of the new paths fire.
+
+### When you need `project_tag`
+
+Most projects do not need `project_tag` — it is optional and only consulted by the companion-file fetcher. Set it by editing `.ndf.json` directly when your project requires migration-specific input files distributed alongside a structural migration. Your Nandu contact will tell you the right slug if one applies.
+
+---
+
 ## v2.1.3 — 2026-05-17
 
 **Distribution-only release.** Source identical to v2.1.2. First release where both macOS and Windows binaries are signed.

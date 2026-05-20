@@ -172,6 +172,6 @@ func checkMinCLIVersion(m *Manifest) {
 		return
 	}
 	if semverLess(CLIVersion, min) {
-		die("your CLI (v%s) is older than this release requires (min v%s). Re-install: re-run the install one-liner from the onboarding email.", CLIVersion, min)
+		die("your CLI (v%s) is older than this release requires (min v%s). Run `ndf self-update` for channel-specific update instructions.", CLIVersion, min)
 	}
 }

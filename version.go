@@ -19,10 +19,19 @@ package main
 // post-/ndf-migrate re-run, and project_tag field in Marker schema. v4.0
 // framework requires this CLI.
 //
+// v2.3.0 — `ndf self-update` subcommand: channel-aware print-instructions
+// for updating the CLI binary itself (Homebrew, Scoop, install.sh, install.ps1).
+// Distinguishes from `ndf update` (which updates framework files in a project).
+// `self-update` (not `upgrade`) is the chosen verb because the dominant
+// Unix package-manager convention puts `upgrade` on actual binary replacement
+// — which this command deliberately does NOT do (package-manager state stays
+// authoritative). The `self-` prefix matches pnpm's pattern and removes all
+// brew/apt verb confusion.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.2.0"
+var CLIVersion = "2.3.0"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"
