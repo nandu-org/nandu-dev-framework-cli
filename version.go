@@ -62,10 +62,21 @@ package main
 //     markers carrying it are tolerated on read (JSON ignores unknown
 //     fields) and the field drops off on the next rewrite.
 //
+// v2.3.2 — paired with framework v4.2.0. Adds the team-handoff dispatcher
+// case for the `v4.0-to-v4.2-heavyweight-phases` migration, so coworkers
+// running `ndf update` post-migration see a paste-ready handoff message
+// covering the artifact-tree change (phased features now use per-phase
+// folders for spec/design/tasks). Purely additive — `migrationHandoffText`
+// gains one switch case; no schema, flag, or behavior change for any other
+// path. `min_cli_version` in framework v4.2.0 stays at `2.3.1`; clients
+// still on v2.3.1 get the migration but fall through to the default empty
+// handoff text (the standard "pull main + /compact" block from
+// printTeamHandoff). Upgrading the CLI is recommended but not required.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.3.1"
+var CLIVersion = "2.3.2"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"

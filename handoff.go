@@ -99,6 +99,8 @@ func migrationHandoffText(migrationName string) string {
 	switch migrationName {
 	case "v3-to-v4-feature-scoped":
 		return v3to4TeamHandoffText
+	case "v4.0-to-v4.2-heavyweight-phases":
+		return v40to42TeamHandoffText
 	}
 	return ""
 }
@@ -131,6 +133,43 @@ If multiple developers had in-flight work on the same phase:
   first-come first-served and the slug locks in at re-creation time. If
   the recovery isn't obvious, reach out to your Nandu contact before
   proceeding.
+
+====================
+`
+
+const v40to42TeamHandoffText = `====================
+TEAM HANDOFF — paste this in your team chat
+====================
+
+The framework upgraded from v4.0.x to v4.2. Phased features now use
+per-phase folders for spec/design/tasks instead of ## Phase M: sections
+inside shared files. Flat features are unchanged.
+
+If you are on main:
+  Run git pull. Your tree now matches the new layout.
+
+If you have uncommitted local edits to a phased feature's feature-level
+spec.md / design.md / tasks.md:
+  Those files changed shape — phase content moved into
+  phase-M-<phase-slug>/ subfolders. Compare your edits against the new
+  per-phase folders and relocate them accordingly. The feature-level
+  spec.md / design.md now hold cross-phase content only; the feature-level
+  tasks.md is gone (tasks live per-phase under phase-M-<phase-slug>/).
+
+If you are on a flat feature branch (feature/<NNN>-<slug>, no phases):
+  Nothing to do — flat features are unchanged.
+
+If you are on a phased feature's feature branch:
+  That branch is now the integration branch; per-phase work happens on
+  per-phase branches feature/<NNN>-<slug>/phase-M-<phase-slug>. When you
+  next run /implement from the feature branch, it will surface a
+  decision-request to pick a phase, then cut the per-phase branch.
+
+If multiple developers had in-flight phased work:
+  The per-phase /planning sub-flow is just-in-time — plan a phase when
+  you're ready to implement it. Coordinate before running /planning on
+  the same phase. If the recovery isn't obvious, reach out to your Nandu
+  contact before proceeding.
 
 ====================
 `

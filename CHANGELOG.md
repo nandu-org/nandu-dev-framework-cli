@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.3.2 — 2026-05-22
+
+**Paired with framework v4.2.0.** Adds the team-handoff dispatcher case for the new `v4.0-to-v4.2-heavyweight-phases` migration so coworkers running `ndf update` after the v4.2 framework lands see a paste-ready chat message covering the artifact-tree change.
+
+### What's new
+
+- **Team-handoff text for `v4.0-to-v4.2-heavyweight-phases`.** The `migrationHandoffText` dispatcher gains a case for the new migration. The message covers: phased features now use per-phase folders for `spec.md` / `design.md` / `tasks.md`; coworkers with uncommitted local edits to a phased feature's feature-level files should compare against the new `phase-M-<phase-slug>/` subfolders and relocate edits; per-phase work happens on per-phase branches that `/implement` cuts when you pick a phase. Flat features are unchanged.
+
+### Compatibility
+
+- No flag, schema, or behavior change on any other code path. Purely additive: one new switch case + one new constant.
+- Framework v4.2.0's `min_cli_version` stays at `2.3.1`. Clients still on CLI v2.3.1 can still install framework v4.2.0 and run the migration; they fall through to the default empty handoff (the standard "pull main + /compact" block from `printTeamHandoff`). Upgrading the CLI is recommended but not required.
+
+### Paired framework release
+
+Framework v4.2.0 ships alongside this CLI release with heavyweight per-phase artifacts for phased features. Update the CLI first (`ndf self-update`), then run `ndf update` to pick up the framework.
+
+---
+
 ## v2.3.1 — 2026-05-20
 
 **Paired with framework v4.0.2.** Retires the migration-spec companion-file mechanism and removes a stale `ndf update` preflight check.
