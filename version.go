@@ -115,10 +115,50 @@ package main
 // `min_cli_version` to `2.4.0` once this CLI has propagated). Existing
 // scripts that read `.ndf.json` directly continue to work.
 //
+// v2.5.0 — paired with framework v4.4.0 (ships after CLI v2.5.0
+// propagates through Homebrew, Scoop, and the install scripts).
+//
+// Release 3 of the CLI-as-contract project: with the contract for
+// runtime reads established in v2.4.0 + framework v4.3.0, the marker
+// file and its `.ndf-*` siblings are consolidated under `.ndf/cli/`:
+// `.ndf/cli/install.json` (was `.ndf.json` at the project root),
+// `.ndf/cli/sentinels/` (was `.ndf-migrations/`),
+// `.ndf/cli/pending-migration` and `.ndf/cli/pending-handoff` (were
+// `.ndf-pending-*` at the project root).
+//
+// Backwards-compatible read of pre-relocation marker layout during the
+// migration window: loadMarker, migrationSentinelExists,
+// pendingMigrationExists, pendingHandoffExists, and
+// loadPendingHandoff each consult both the new (.ndf/cli/) and old
+// (project-root) locations so a stale client whose on-disk state
+// hasn't yet been moved by the framework v4.4.0 migration still has
+// every CLI subcommand work transparently. Writes (writeMarker,
+// writePendingMigration, writePendingHandoff,
+// migrationSentinelPath) always land at the new location and carry
+// the MkdirAll precondition so .ndf/cli/ is created on demand. The
+// `oldMarkerPath`, `oldPendingMigrationPath`, `oldPendingHandoffPath`,
+// `oldMigrationSentinelPath` helpers expose the legacy resolver
+// shape for the dual-path code paths.
+//
+// `cmdInit` now refuses on EITHER the new or the old marker existing
+// (covers fresh init in a project that hasn't yet run the
+// v4.3-to-v4.4 migration) with a message pointing the user at
+// `ndf update`.
+//
+// `migrationHandoffText` gains a case for
+// `v4.3-to-v4.4-cli-state-relocation`: the coworker-facing recovery
+// instruction emitted by `ndf update` on the post-migration re-run.
+//
+// Verification: new `scripts/verify-dual-path.sh` runs five fixture
+// scenarios covering the catch-up window (marker at OLD only,
+// sentinels at OLD only, pending-handoff at OLD only, fresh write at
+// NEW, read-OLD-then-write-NEW). Added to `RELEASE.md` pre-flight
+// alongside the existing golden-file check.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.4.0"
+var CLIVersion = "2.5.0"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"

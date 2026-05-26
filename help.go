@@ -8,13 +8,13 @@ func printHelpInit() {
 	rawErr(`Usage: ndf init [flags]
 
 Scaffold a NEW ndf project in the current directory.
-Refuses on existing .ndf.json — use ` + "`ndf login`" + ` to set tokens for an existing project,
+Refuses on an existing ndf project — use ` + "`ndf login`" + ` to set tokens for an existing project,
 or ` + "`ndf update`" + ` to update an already-installed project.
 
 Flags:
   --token=<framework_pat>              GitHub PAT, read-only on the framework repo
   --fieldnotes-token=<fieldnotes_pat>  GitHub PAT, write-only on the client's field-notes repo
-  --fieldnotes-repo=<owner/repo>       The client's field-notes repo (written to .ndf.json).
+  --fieldnotes-repo=<owner/repo>       The client's field-notes repo (written to .ndf/cli/install.json).
                                        If omitted, ndf init prompts for it interactively
                                        (TTY only); in CI, the warning is emitted and you
                                        can set it later via ` + "`ndf config set fieldnotes-repo`" + `.
@@ -22,7 +22,7 @@ Flags:
 
 Tokens (--token, --fieldnotes-token) are persisted to the per-developer
 config (~/.config/nandu/config.json on Unix, %APPDATA%\nandu\config.json on
-Windows). The fieldnotes_repo is persisted to the project's .ndf.json
+Windows). The fieldnotes_repo is persisted to the project's .ndf/cli/install.json
 (per-project, committed) so coworkers cloning the project pick it up automatically.
 
 Env vars NDF_GITHUB_TOKEN and NDF_FIELDNOTES_TOKEN override the config file
@@ -62,8 +62,8 @@ Tokens are set via ` + "`ndf login`" + `, not ` + "`ndf config set`" + `.`)
 func printHelpConfigGet() {
 	rawErr(`Usage: ndf config get <key> [--source]
 
-Print a single config value to stdout. Mediates external reads of .ndf.json
-so consumers don't depend on its on-disk location or schema.
+Print a single config value to stdout. Mediates external reads of the
+project marker so consumers don't depend on its on-disk location or schema.
 
 Keys (kebab or snake form both accepted):
   version            framework version from the marker
@@ -89,7 +89,7 @@ func printHelpConfigSet() {
 Set a configuration key.
 
 Supported keys:
-  fieldnotes-repo OWNER/REPO    The project's field-notes repo. Persisted to .ndf.json
+  fieldnotes-repo OWNER/REPO    The project's field-notes repo. Persisted to .ndf/cli/install.json
                                 (per-project, committed). Must be run inside an ndf project.
 
 Tokens (framework PAT, fieldnotes PAT) are set via ` + "`ndf login`" + `, not here.`)
@@ -141,7 +141,7 @@ Commands:
   config set     Set a config key (currently: fieldnotes-repo OWNER/REPO)
   config get     Print a single config value (version, pinned_version, fieldnotes_repo)
   is-project     Exit 0 if cwd (or $CLAUDE_PROJECT_DIR) is an NDF project, 1 if not
-  marker-path    Print the absolute path to .ndf.json the CLI would consult
+  marker-path    Print the absolute path to the project marker the CLI would consult
   version        Print the CLI version
   help           Print this help
 

@@ -5,7 +5,10 @@ import (
 	"os"
 )
 
-// cmdIsProject — does the cwd (or $CLAUDE_PROJECT_DIR) contain a parseable .ndf.json?
+// cmdIsProject — does the cwd (or $CLAUDE_PROJECT_DIR) contain a parseable
+// project marker? (The marker lives at .ndf/cli/install.json under the
+// v2.5.0+ layout; loadMarker falls back to the pre-v2.5.0 location at
+// .ndf.json for projects that haven't yet run the v4.3-to-v4.4 migration.)
 // Exit codes:
 //
 //	0 — yes (marker exists and parses)
@@ -39,7 +42,7 @@ func cmdIsProject(args []string) {
 func cmdMarkerPath(args []string) {
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
-			rawErr("Usage: ndf marker-path\n\nPrint the absolute path to .ndf.json the CLI would consult (honors $CLAUDE_PROJECT_DIR). Does not check existence.")
+			rawErr("Usage: ndf marker-path\n\nPrint the absolute path to the project marker the CLI would consult (honors $CLAUDE_PROJECT_DIR). Does not check existence.")
 			return
 		}
 	}

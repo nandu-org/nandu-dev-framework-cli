@@ -63,8 +63,21 @@ func cmdInit(args []string) {
 	}
 
 	// Strict: refuse on existing project. Direct user to the right command.
-	if _, err := os.Stat(projectMarker); err == nil {
-		die("%s already exists. This is already an NDF project.\n\n  To set or update your credentials:  ndf login\n  To update the project:              ndf update", projectMarker)
+	// Dual-path check: a project may have its marker at either the
+	// v2.5.0+ location (.ndf/cli/install.json) or the pre-v2.5.0
+	// location (.ndf.json at the project root). Either presence means
+	// `ndf init` should refuse; the user is in an already-NDF project
+	// and should use `ndf update` (or `ndf login` for credentials).
+	newPath := markerPath()
+	oldPath := oldMarkerPath()
+	newExists := fileExists(newPath)
+	oldExists := fileExists(oldPath)
+	if newExists || oldExists {
+		foundPath := newPath
+		if !newExists {
+			foundPath = oldPath
+		}
+		die("ndf project state found at %s. To update the project: `ndf update`. To set credentials: `ndf login`.", foundPath)
 	}
 
 	// If tokens were passed as flags, persist them BEFORE the rest of init.
@@ -170,6 +183,16 @@ func cmdInit(args []string) {
 		InstalledChecksums: checksums,
 		FieldnotesRepo:     cliFieldnotesRepo,
 	}
+	// Create the CLI-state directory tree (.ndf/cli/sentinels/) before
+	// writeMarker so the rename target's parent exists. writeMarker
+	// itself also MkdirAlls .ndf/cli/ as belt-and-suspenders; the
+	// explicit sentinels/ create here is the canonical one for fresh
+	// init (gives /ndf-migrate an empty sentinels/ directory to populate
+	// on first migration run).
+	sentinelsDir := resolveProjectPath(migrationsSentinelDir)
+	if err := os.MkdirAll(sentinelsDir, 0o755); err != nil {
+		die("create %s: %v", sentinelsDir, err)
+	}
 	if err := writeMarker(m); err != nil {
 		die("write marker: %v", err)
 	}
@@ -177,9 +200,9 @@ func cmdInit(args []string) {
 	cwd, _ := os.Getwd()
 	ok("ndf init complete. Installed v%s into %s.", manifest.Version, cwd)
 	if cliFieldnotesRepo != "" {
-		info("fieldnotes_repo set to %s in .ndf.json — commit this so coworkers pick it up automatically.", cliFieldnotesRepo)
+		info("fieldnotes_repo set to %s in %s — commit this so coworkers pick it up automatically.", cliFieldnotesRepo, projectMarker)
 	} else {
-		warn("no --fieldnotes-repo provided; /field-note won't have a target until it's set in .ndf.json (or fall back to ~/.config/nandu/config.json).")
+		warn("no --fieldnotes-repo provided; /field-note won't have a target until it's set in %s (or fall back to ~/.config/nandu/config.json).", projectMarker)
 	}
 	ok("Next steps: edit CLAUDE.project.md, .claude/hooks/pre-commit-tests.sh, and .claude/settings.json (allow-list) per METHODOLOGY.md.")
 }

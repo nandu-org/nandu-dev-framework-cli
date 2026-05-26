@@ -219,7 +219,7 @@ func cmdConfigShow() {
 			fmt.Println("  fieldnotes_repo: " + m.FieldnotesRepo)
 		}
 	} else {
-		fmt.Println("(not currently in an NDF project — no .ndf.json in cwd)")
+		fmt.Println("(not currently in an NDF project — no " + projectMarker + " in cwd)")
 	}
 
 	fmt.Println()

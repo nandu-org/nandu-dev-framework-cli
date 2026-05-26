@@ -1,0 +1,18 @@
+# Scenario (e): marker-old-read-then-write-goes-new
+#
+# Pre-state: project has `.ndf.json` at the project root only (OLD
+# layout, pre-v4.4.0 migration). No `.ndf/cli/` directory exists.
+#
+# Verifies: when `ndf config set` runs against this project, the read
+# finds the marker via dual-path fallback at OLD, mutates it in
+# memory, then writes to NEW. The OLD marker is intentionally left in
+# place on disk — the v4.3-to-v4.4 migration's Step 3 cleanup
+# (`git rm .ndf.json` in State B) handles the dual-marker state on
+# the next `ndf update`.
+#
+# Expected behavior post-write:
+# - `.ndf/cli/install.json` exists with the new fieldnotes_repo value
+#   (and otherwise carries the same fields as the OLD marker).
+# - `.ndf.json` still exists at OLD with its ORIGINAL content (this
+#   is the documented "two markers on disk briefly" state described
+#   in the v4.3-to-v4.4 migration handover).

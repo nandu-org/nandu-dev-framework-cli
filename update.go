@@ -107,8 +107,11 @@ func cmdUpdate(args []string) {
 		// would be inert.
 		consumePendingHandoff()
 		// Tidy up any stale pending-migration marker from older CLI
-		// versions or interrupted /ndf-migrate runs.
+		// versions or interrupted /ndf-migrate runs. Dual-path during
+		// the catch-up window: a pre-v2.5.0 marker may still be at OLD;
+		// both removes succeed-or-no-op via os.IsNotExist tolerance.
 		_ = os.Remove(pendingMigrationPath())
+		_ = os.Remove(oldPendingMigrationPath())
 	} else if len(pendingMigrations) > 0 {
 		// Pre-flight: working tree must be clean before we touch it.
 		// We're about to write spec files and a marker into the client
@@ -136,7 +139,7 @@ func cmdUpdate(args []string) {
 			die("fetch ndf-migrate.md: %v", err)
 		}
 		// Write the pending-migration marker so /ndf-migrate knows what to apply.
-		if err := os.WriteFile(pendingMigrationPath(), []byte(strings.Join(pendingMigrations, "\n")+"\n"), 0o644); err != nil {
+		if err := writePendingMigration([]byte(strings.Join(pendingMigrations, "\n") + "\n")); err != nil {
 			die("write %s: %v", pendingMigrationPath(), err)
 		}
 		// If any pending migration carries migration-specific
@@ -144,7 +147,7 @@ func cmdUpdate(args []string) {
 		// (after /ndf-migrate completes and every listed migration's
 		// sentinel is on disk). consumePendingHandoff on the
 		// sentinel-skip branch above consumes and removes it.
-		writePendingHandoff(pendingMigrations)
+		composeAndWritePendingHandoff(pendingMigrations)
 		ok("")
 		ok("v%s includes a structural migration. Run /ndf-migrate in Claude Code to apply,", manifest.Version)
 		ok("then re-run `ndf update` to complete the file-level changes.")
@@ -256,7 +259,11 @@ func cmdUpdate(args []string) {
 }
 
 // pendingMigrationsFromManifest walks manifest.Migrations and returns those
-// that DON'T yet have a sentinel file written.
+// that DON'T yet have a sentinel file written at EITHER the v2.5.0+ path
+// (.ndf/cli/sentinels/<name>.complete) OR the pre-v2.5.0 location
+// (.ndf-migrations/<name>.complete). The dual-path check makes the gate
+// transparent during the catch-up window — stale clients with sentinels
+// at OLD don't re-run migrations that already completed.
 func pendingMigrationsFromManifest(m *Manifest) []string {
 	var out []string
 	for _, name := range m.Migrations {
@@ -264,7 +271,7 @@ func pendingMigrationsFromManifest(m *Manifest) []string {
 		if name == "" {
 			continue
 		}
-		if _, err := os.Stat(migrationSentinelPath(name)); os.IsNotExist(err) {
+		if !migrationSentinelExists(name) {
 			out = append(out, name)
 		}
 	}
@@ -453,10 +460,34 @@ func indentEachLine(s, prefix string) string {
 	return strings.Join(lines, "\n")
 }
 
-// writePendingHandoff writes the migration team-handoff marker if any of
-// the pending migrations carry custom handoff text. When multiple
-// migrations have text, they're concatenated in pending-order separated
-// by a blank line. Empty text → no marker file written.
+// writePendingMigration writes the pending-migration marker, creating
+// the parent directory (.ndf/cli/) first under the v2.5.0+ layout.
+// Called from the gate-fired branch of cmdUpdate. Refactored out of the
+// inline call site for symmetry with writePendingHandoff and to
+// guarantee the MkdirAll precondition is never forgotten by a future
+// caller.
+func writePendingMigration(body []byte) error {
+	if err := os.MkdirAll(filepath.Dir(pendingMigrationPath()), 0o755); err != nil {
+		return fmt.Errorf("create pending-migration parent dir: %w", err)
+	}
+	return os.WriteFile(pendingMigrationPath(), body, 0o644)
+}
+
+// writePendingHandoff writes the pending-handoff marker to its v2.5.0+
+// location, creating .ndf/cli/ first if needed. Low-level helper —
+// callers that want the compose-then-write shape (concatenate per-spec
+// handoff text from the dispatcher) use composeAndWritePendingHandoff.
+func writePendingHandoff(body []byte) error {
+	if err := os.MkdirAll(filepath.Dir(pendingHandoffPath()), 0o755); err != nil {
+		return fmt.Errorf("create pending-handoff parent dir: %w", err)
+	}
+	return os.WriteFile(pendingHandoffPath(), body, 0o644)
+}
+
+// composeAndWritePendingHandoff writes the migration team-handoff marker
+// if any of the pending migrations carry custom handoff text. When
+// multiple migrations have text, they're concatenated in pending-order
+// separated by a blank line. Empty text → no marker file written.
 //
 // Consumed by consumePendingHandoff on the sentinel-skip branch of the
 // NEXT cmdUpdate run (after the migrator has run /ndf-migrate and every
@@ -464,7 +495,7 @@ func indentEachLine(s, prefix string) string {
 //
 // Called from the gate-fired branch AFTER spec delivery — the migration
 // hasn't run yet at this point, only its spec has been pre-delivered.
-func writePendingHandoff(pendingMigrations []string) {
+func composeAndWritePendingHandoff(pendingMigrations []string) {
 	var parts []string
 	for _, name := range pendingMigrations {
 		if t := migrationHandoffText(name); t != "" {
@@ -475,7 +506,7 @@ func writePendingHandoff(pendingMigrations []string) {
 		return
 	}
 	body := strings.Join(parts, "\n")
-	if err := os.WriteFile(pendingHandoffPath(), []byte(body), 0o644); err != nil {
+	if err := writePendingHandoff([]byte(body)); err != nil {
 		// Non-fatal: the spec has been delivered and pending-migration
 		// marker is in place; failing to stage the team-handoff text
 		// only means the user will see the standard handoff (no
@@ -485,31 +516,59 @@ func writePendingHandoff(pendingMigrations []string) {
 	}
 }
 
-// consumePendingHandoff prints the .ndf-pending-handoff marker (if
-// present) and removes it. Called from the sentinel-skip branch — i.e.,
-// only when every manifest-listed migration is already applied — so the
-// message we print is always correct (the migration HAS completed).
+// loadPendingHandoff reads the pending-handoff marker, dual-path aware:
+// tries the v2.5.0+ path first, falls back to the pre-v2.5.0 location.
+// Returns (body, "new" | "old" | "", error). nil body + no error if
+// neither path exists.
+func loadPendingHandoff() ([]byte, string, error) {
+	if data, err := os.ReadFile(pendingHandoffPath()); err == nil {
+		return data, "new", nil
+	} else if !os.IsNotExist(err) {
+		return nil, "", err
+	}
+	if data, err := os.ReadFile(oldPendingHandoffPath()); err == nil {
+		return data, "old", nil
+	} else if !os.IsNotExist(err) {
+		return nil, "", err
+	}
+	return nil, "", nil
+}
+
+// consumePendingHandoff prints the pending-handoff marker (if present)
+// and removes it. Called from the sentinel-skip branch — i.e., only when
+// every manifest-listed migration is already applied — so the message we
+// print is always correct (the migration HAS completed).
 //
 // Defense-in-depth: even though the call site already gates on "all
-// migrations applied", we additionally check that .ndf-pending-migration
-// is absent (the in-flight signal that /ndf-migrate removes on success).
-// If it's still on disk, the migration didn't actually complete — skip
-// quietly and leave the handoff text for the next run.
+// migrations applied", we additionally check that no pending-migration
+// marker exists at EITHER NEW or OLD path (the in-flight signal that
+// /ndf-migrate removes on success). If still on disk, the migration
+// didn't actually complete — skip quietly and leave the handoff text for
+// the next run.
 //
-// No-op if the marker is absent.
+// Dual-path cleanup: removes the handoff marker from BOTH NEW and OLD
+// locations on success; both os.Remove calls succeed-or-no-op via
+// os.IsNotExist tolerance. Covers the catch-up window where a
+// pre-v4.4.0 client wrote the handoff at OLD before upgrading.
+//
+// No-op if the marker is absent from both locations.
 func consumePendingHandoff() {
-	if _, err := os.Stat(pendingMigrationPath()); err == nil {
+	if pendingMigrationExists() {
 		return // migration still pending; not safe to declare it completed
 	}
-	path := pendingHandoffPath()
-	data, err := os.ReadFile(path)
-	if err != nil {
+	data, _, err := loadPendingHandoff()
+	if err != nil || data == nil {
 		return // absent or unreadable; nothing to do
 	}
 	rawOut("")
 	rawOut("%s", strings.TrimRight(string(data), "\n"))
 	rawOut("")
-	if err := os.Remove(path); err != nil {
-		warn("could not remove %s: %v — the handoff message above may print again on the next `ndf update`.", path, err)
+	// Remove from both possible locations — both calls succeed-or-no-op
+	// for the absent path via os.IsNotExist.
+	if err := os.Remove(pendingHandoffPath()); err != nil && !os.IsNotExist(err) {
+		warn("could not remove %s: %v — the handoff message above may print again on the next `ndf update`.", pendingHandoffPath(), err)
+	}
+	if err := os.Remove(oldPendingHandoffPath()); err != nil && !os.IsNotExist(err) {
+		warn("could not remove %s: %v — the handoff message above may print again on the next `ndf update`.", oldPendingHandoffPath(), err)
 	}
 }

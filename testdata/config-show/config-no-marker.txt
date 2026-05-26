@@ -2,7 +2,7 @@ Per-developer config (<CONFIG_PATH>):
   framework_pat:  ghp_...cdef
   fieldnotes_pat: ghp_...xwvu
 
-(not currently in an NDF project — no .ndf.json in cwd)
+(not currently in an NDF project — no .ndf/cli/install.json in cwd)
 
 Resolved fieldnotes_repo (for /field-note in this directory):
   (not configured — /field-note will fail in this directory)

@@ -138,22 +138,44 @@ func maskToken(t string) string {
 	return t[:4] + "..." + t[len(t)-4:]
 }
 
-// markerPath returns the absolute path to the project marker (.ndf.json).
-// Honors CLAUDE_PROJECT_DIR when set (matches Claude Code's convention for
+// markerPath returns the absolute path to the project marker
+// (.ndf/cli/install.json under the v2.5.0+ layout). Honors
+// CLAUDE_PROJECT_DIR when set (matches Claude Code's convention for
 // rooting commands at the project directory); falls back to cwd otherwise.
 // Always returns an absolute path so callers can use it from any cwd.
+//
+// Resolver-vs-write-target: this function stays pure-NEW and returns the
+// write target. Read-side dual-path fallback lives in loadMarker (which
+// also consults oldMarkerPath when the NEW location is absent).
 func markerPath() string {
+	return resolveProjectPath(projectMarker)
+}
+
+// oldMarkerPath returns the absolute path to the pre-v2.5.0 marker
+// location (.ndf.json at the project root). Used by loadMarker's
+// dual-path fallback during the catch-up window — i.e., for projects
+// whose state lives at the OLD layout until the
+// v4.3-to-v4.4-cli-state-relocation migration runs.
+func oldMarkerPath() string {
+	return resolveProjectPath(oldProjectMarker)
+}
+
+// resolveProjectPath returns an absolute path to <rel> under the project
+// directory. CLAUDE_PROJECT_DIR (if set) wins; otherwise cwd. Used by
+// every path resolver in the CLI so all path helpers share the same
+// env-var-aware shape.
+func resolveProjectPath(rel string) string {
 	projDir := os.Getenv("CLAUDE_PROJECT_DIR")
 	if projDir == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return projectMarker // last-ditch fallback; cwd-relative
+			return rel // last-ditch fallback; cwd-relative
 		}
 		projDir = cwd
 	}
-	abs, err := filepath.Abs(filepath.Join(projDir, projectMarker))
+	abs, err := filepath.Abs(filepath.Join(projDir, rel))
 	if err != nil {
-		return filepath.Join(projDir, projectMarker)
+		return filepath.Join(projDir, rel)
 	}
 	return abs
 }
@@ -204,17 +226,92 @@ func resolveConfigKey(key string) (value, source string, exists bool) {
 	return "", "", false
 }
 
-// pendingMigrationPath returns the path to the migration-in-progress marker.
+// pendingMigrationPath returns the absolute path to the migration-in-progress
+// marker under the v2.5.0+ layout. Honors CLAUDE_PROJECT_DIR (symmetric with
+// markerPath). Pure-NEW write target; existence checks should use
+// pendingMigrationExists.
 func pendingMigrationPath() string {
-	return pendingMigrationMarker
+	return resolveProjectPath(pendingMigrationMarker)
 }
 
-// pendingHandoffPath returns the path to the migration team-handoff marker.
+// oldPendingMigrationPath returns the absolute path to the pre-v2.5.0
+// pending-migration marker location, for dual-path read/cleanup during the
+// catch-up window.
+func oldPendingMigrationPath() string {
+	return resolveProjectPath(oldPendingMigrationMarker)
+}
+
+// pendingHandoffPath returns the absolute path to the migration
+// team-handoff marker under the v2.5.0+ layout. Honors
+// CLAUDE_PROJECT_DIR (symmetric with markerPath). Pure-NEW write target;
+// existence/load should use pendingHandoffExists / loadPendingHandoff.
 func pendingHandoffPath() string {
-	return pendingHandoffMarker
+	return resolveProjectPath(pendingHandoffMarker)
 }
 
-// migrationSentinelPath returns the path to a single migration's sentinel.
+// oldPendingHandoffPath returns the absolute path to the pre-v2.5.0
+// pending-handoff marker location, for dual-path read/cleanup during the
+// catch-up window.
+func oldPendingHandoffPath() string {
+	return resolveProjectPath(oldPendingHandoffMarker)
+}
+
+// migrationSentinelPath returns the absolute path to a single migration's
+// sentinel under the v2.5.0+ layout. Pure-NEW write target — new
+// sentinels (written by /ndf-migrate post-v4.4.0) always land here.
+// Existence checks during the catch-up window should use
+// migrationSentinelExists, which consults both NEW and OLD paths.
 func migrationSentinelPath(name string) string {
-	return filepath.Join(migrationsSentinelDir, name+".complete")
+	return resolveProjectPath(filepath.Join(migrationsSentinelDir, name+".complete"))
+}
+
+// oldMigrationSentinelPath returns the absolute path to a single
+// migration's sentinel at the pre-v2.5.0 location. Read-only — used by
+// migrationSentinelExists for the dual-path existence check during the
+// catch-up window.
+func oldMigrationSentinelPath(name string) string {
+	return resolveProjectPath(filepath.Join(oldMigrationsSentinelDir, name+".complete"))
+}
+
+// migrationSentinelExists returns true if a sentinel for `name` is on
+// disk at EITHER the new (.ndf/cli/sentinels/) or old (.ndf-migrations/)
+// location. Sentinels are append-only: once written by /ndf-migrate they
+// are never moved by anything except the v4.3-to-v4.4 migration. The
+// dual-path check makes the catch-up window transparent — a stale client
+// running `ndf update` against framework v4.4.0 still has its prior
+// migration sentinels at OLD until the relocation migration runs.
+func migrationSentinelExists(name string) bool {
+	if fileExists(migrationSentinelPath(name)) {
+		return true
+	}
+	return fileExists(oldMigrationSentinelPath(name))
+}
+
+// pendingMigrationExists returns true if a pending-migration marker is on
+// disk at EITHER NEW or OLD path. Used by consumePendingHandoff's
+// defense-in-depth guard (which bails out if the marker is still present,
+// signaling that /ndf-migrate didn't finish cleanly).
+func pendingMigrationExists() bool {
+	if fileExists(pendingMigrationPath()) {
+		return true
+	}
+	return fileExists(oldPendingMigrationPath())
+}
+
+// pendingHandoffExists returns true if a pending-handoff marker is on
+// disk at EITHER NEW or OLD path. Analogous shape to
+// pendingMigrationExists; reserved for future call sites that need a
+// quick "is there a pending handoff?" check without loading the file.
+func pendingHandoffExists() bool {
+	if fileExists(pendingHandoffPath()) {
+		return true
+	}
+	return fileExists(oldPendingHandoffPath())
+}
+
+// fileExists is a small helper: true iff os.Stat succeeds on `path`.
+// Used by the dual-path *Exists helpers and by cmdInit's existence guard.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

@@ -1,0 +1,17 @@
+# Scenario (b): sentinels-old-only
+#
+# Pre-state: project has `.ndf-migrations/v3-to-v4-feature-scoped.complete`
+# at the project root only. No `.ndf/cli/` directory exists.
+#
+# Verifies: the CLI's `migrationSentinelExists` helper finds sentinels
+# at the OLD location.
+#
+# The fixture is exercised indirectly through `ndf update`'s gate
+# logic; the verification script avoids the full network-bound update
+# flow and instead uses a small built-in probe (see scripts/verify-dual-path.sh)
+# to confirm sentinel existence checks work against the OLD layout.
+#
+# Expected: the OLD-path sentinel file is detected (no direct CLI
+# command exposes this directly; the dual-path check is exercised by
+# pendingMigrationsFromManifest at runtime). Fixture documents the
+# layout the dual-path helper must handle correctly.

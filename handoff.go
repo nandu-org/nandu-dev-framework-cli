@@ -101,6 +101,8 @@ func migrationHandoffText(migrationName string) string {
 		return v3to4TeamHandoffText
 	case "v4.0-to-v4.2-heavyweight-phases":
 		return v40to42TeamHandoffText
+	case "v4.3-to-v4.4-cli-state-relocation":
+		return v43to44TeamHandoffText
 	}
 	return ""
 }
@@ -170,6 +172,23 @@ If multiple developers had in-flight phased work:
   you're ready to implement it. Coordinate before running /planning on
   the same phase. If the recovery isn't obvious, reach out to your Nandu
   contact before proceeding.
+
+====================
+`
+
+const v43to44TeamHandoffText = `====================
+TEAM HANDOFF — paste this in your team chat
+====================
+
+The framework moved CLI-managed state into ` + "`.ndf/cli/`" + `. **Before pulling
+main, run ` + "`ndf self-update`" + ` to upgrade to CLI v2.5.0+** — older CLIs
+cannot find the marker at its new location, so ` + "`ndf update`" + `,
+` + "`ndf config get`" + ` (for marker-sourced keys), and the framework's slash
+commands (` + "`/field-note`" + `, ` + "`/ndf-migrate`" + `) will report 'not an ndf project'
+until you upgrade. (` + "`ndf version`" + `, ` + "`ndf self-update`" + `, and ` + "`ndf login`" + `
+still work without the marker.) After CLI update: ` + "`git pull origin main`" + `,
+then ` + "`/compact`" + `. If you have uncommitted local edits to ` + "`.ndf.json`" + `,
+` + "`.ndf-pending-*`" + `, or ` + "`.ndf-migrations/`" + ` (rare), reach out before pulling.
 
 ====================
 `

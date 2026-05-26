@@ -1,5 +1,30 @@
 # Changelog
 
+## v2.5.0 — 2026-05-26
+
+**CLI-managed state consolidated under `.ndf/cli/`.** Pairs with framework v4.4.0 (to ship after propagation). The CLI now reads the project marker at `.ndf/cli/install.json` and writes new sentinels and pending markers under `.ndf/cli/sentinels/`, `.ndf/cli/pending-migration`, and `.ndf/cli/pending-handoff`.
+
+### What's new
+
+- **New on-disk layout for CLI-managed state.** `ndf init` creates the marker at `.ndf/cli/install.json` (was `.ndf.json` at the project root); migration sentinels land in `.ndf/cli/sentinels/` (was `.ndf-migrations/`); transient markers land under `.ndf/cli/` (was `.ndf-pending-*` at the project root).
+- **Team-handoff dispatcher case for `v4.3-to-v4.4-cli-state-relocation`.** `ndf update` now emits a paste-ready coworker-recovery message on the post-migration re-run that instructs teammates to run `ndf self-update` before pulling main, so older CLIs don't fall over after the migration relocates the marker.
+
+### Compatibility
+
+- **Backwards-compatible read of pre-relocation marker layout during the migration window.** Existing projects whose on-disk state has not yet been relocated by the framework v4.4.0 migration continue to work transparently — `ndf is-project`, `ndf marker-path`, `ndf config get`, `ndf update`, and `ndf config set` all behave correctly against both pre- and post-relocation layouts.
+- **Pairs with framework v4.4.0**, which contains the migration spec that performs the on-disk relocation (`migrations/v4.3-to-v4.4-cli-state-relocation.md`). Framework v4.4.0 will bump `min_cli_version` to `2.5.0` to ensure clients have these read/write contracts in place before the manifest version that triggers the move can land.
+- **Pure-additive for pre-migration clients.** No flag, schema, or behavior change on any other code path. CLI subcommands behave identically against pre-v4.4.0 projects; the only externally observable change is the location where a fresh `ndf init` writes its files.
+
+### Verification
+
+- New `scripts/verify-dual-path.sh` exercises five fixture scenarios covering the catch-up window between CLI v2.5.0 and framework v4.4.0 (marker at OLD only, sentinels at OLD only, pending-handoff at OLD only, fresh write at NEW, read-OLD-then-write-NEW). Added to `RELEASE.md` as a pre-flight check alongside `scripts/verify-show.sh`.
+
+### Framework pairing (post-propagation)
+
+Framework v4.4.0 ships after CLI v2.5.0 has propagated through the distribution channels (Homebrew, Scoop, install scripts). The framework release contains `migrations/v4.3-to-v4.4-cli-state-relocation.md` — a one-time `/ndf-migrate` step that moves existing on-disk state to the new layout. After framework v4.4.0 lands, run `ndf update` to trigger the migration delivery, then `/ndf-migrate` in Claude Code to apply it.
+
+---
+
 ## v2.4.0 — 2026-05-26
 
 **CLI-as-contract for `.ndf.json` reads.** Three new read-only subcommands mediate external access to the project marker so consumers no longer hit the file directly — future moves or reshapes of the marker become CLI-internal refactors rather than breaking changes.

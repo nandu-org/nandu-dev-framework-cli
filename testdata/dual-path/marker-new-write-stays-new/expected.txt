@@ -1,0 +1,12 @@
+# Scenario (d): marker-new-write-stays-new
+#
+# Pre-state: project has `.ndf/cli/install.json` only. No `.ndf.json`
+# at the project root.
+#
+# Verifies: a CLI write (via `ndf config set fieldnotes-repo …`)
+# updates the NEW marker in place. The OLD path remains absent.
+#
+# Expected behavior post-write:
+# - `.ndf/cli/install.json` exists with the new fieldnotes_repo value.
+# - `.ndf.json` at the project root does NOT exist (write target is
+#   pure-NEW; nothing creates the OLD path under v2.5.0+).

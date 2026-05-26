@@ -4,7 +4,7 @@
 //
 //	ndf init        [--token=<framework_pat>] [--fieldnotes-token=<fieldnotes_pat>]
 //	                [--fieldnotes-repo=<owner/repo>] [--version=<x.y.z>]
-//	    Scaffold a NEW NDF project. Refuses on existing .ndf.json — use
+//	    Scaffold a NEW NDF project. Refuses on an existing ndf project — use
 //	    `ndf login` to set tokens for an existing project.
 //
 //	ndf login       [--token=<framework_pat>] [--fieldnotes-token=<fieldnotes_pat>]
@@ -23,15 +23,15 @@
 //
 //	ndf config set fieldnotes-repo OWNER/REPO
 //	    Set the project's field-notes repo on an already-initialized project.
-//	    Persists to .ndf.json (per-project, committed).
+//	    Persists to the project marker (per-project, committed).
 //
 //	ndf is-project
-//	    Exit 0 if cwd (or $CLAUDE_PROJECT_DIR) contains a parseable .ndf.json,
+//	    Exit 0 if cwd (or $CLAUDE_PROJECT_DIR) is an NDF project,
 //	    1 if absent, 2 on internal error. Silent on 0 and 1.
 //
 //	ndf marker-path
-//	    Print the absolute resolved path to .ndf.json the CLI would consult
-//	    (honors $CLAUDE_PROJECT_DIR). Does not check existence.
+//	    Print the absolute resolved path to the project marker the CLI would
+//	    consult (honors $CLAUDE_PROJECT_DIR). Does not check existence.
 //
 //	ndf config get <key> [--source]
 //	    Print a single config value to stdout. Closed key set: version,
@@ -48,7 +48,7 @@
 //	Unix:    ~/.config/nandu/config.json   (mode 0600)
 //	Windows: %APPDATA%\nandu\config.json
 //
-// Per-project marker: <project>/.ndf.json
+// Per-project marker: <project>/.ndf/cli/install.json
 //
 // Source of framework files: nandu-org/nandu-dev-framework  (private GitHub repo)
 // Source of this CLI:        nandu-org/nandu-dev-framework-cli  (public)

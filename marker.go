@@ -34,19 +34,54 @@ type Marker struct {
 	FieldnotesRepo     string            `json:"fieldnotes_repo,omitempty"`
 }
 
-// loadMarker reads .ndf.json from cwd. nil + nil if absent.
-// Empty file returns an error (treat as malformed).
+// loadMarker reads the project marker. Tries the v2.5.0+ path first
+// (.ndf/cli/install.json); on os.IsNotExist falls back to the pre-v2.5.0
+// path (.ndf.json at the project root). nil + nil if neither exists.
+// Empty / malformed file returns an error referencing whichever path
+// actually failed.
 func loadMarker() (*Marker, error) {
-	data, err := os.ReadFile(markerPath())
+	m, _, err := loadMarkerWithSource()
+	return m, err
+}
+
+// loadMarkerWithSource is the source-aware variant of loadMarker: the
+// second return value is "new" if the marker was read from
+// markerPath() or "old" if it was read from the dual-path fallback at
+// oldMarkerPath(). Empty string if absent (m == nil). No current
+// callers consume the source, but the helper enables future call sites
+// (e.g., warning when a write would diverge from the read location).
+func loadMarkerWithSource() (*Marker, string, error) {
+	// NEW path first.
+	if m, err := readMarkerFile(markerPath()); err != nil || m != nil {
+		if err != nil {
+			return nil, "", err
+		}
+		return m, "new", nil
+	}
+	// Fall back to the OLD location (catch-up window).
+	if m, err := readMarkerFile(oldMarkerPath()); err != nil || m != nil {
+		if err != nil {
+			return nil, "", err
+		}
+		return m, "old", nil
+	}
+	return nil, "", nil
+}
+
+// readMarkerFile returns (*Marker, error). nil + nil if the path does
+// not exist; otherwise reads and unmarshals. Empty / malformed JSON
+// returns an error referencing the path that failed.
+func readMarkerFile(path string) (*Marker, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("read %s: %w", markerPath(), err)
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var m Marker
 	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("%s is not valid JSON: %w", markerPath(), err)
+		return nil, fmt.Errorf("%s is not valid JSON: %w", path, err)
 	}
 	if m.InstalledChecksums == nil {
 		m.InstalledChecksums = make(map[string]string)
@@ -86,6 +121,17 @@ func writeMarker(m *Marker) error {
 		return fmt.Errorf("marshal marker: %w", err)
 	}
 	data = append(data, '\n')
+
+	// Ensure the marker's parent directory (.ndf/cli/ under v2.5.0+
+	// layout) exists before CreateTemp. Covers every caller — cmdInit
+	// (fresh project), cmdConfigSet (pre-migration with marker still at
+	// OLD: this write creates .ndf/cli/install.json next to the stale
+	// OLD copy; the v4.3-to-v4.4 migration's Step 3 cleans up the OLD
+	// file), and post-migration cmdUpdate (NEW already exists; MkdirAll
+	// is a no-op).
+	if err := os.MkdirAll(filepath.Dir(markerPath()), 0o755); err != nil {
+		return fmt.Errorf("create marker parent dir: %w", err)
+	}
 
 	tmp, err := os.CreateTemp(filepath.Dir(markerPath()), ".ndf.json.*")
 	if err != nil {

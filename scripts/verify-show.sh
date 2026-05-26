@@ -31,7 +31,8 @@ for fixture in no-config-no-marker config-no-marker no-config-marker config-mark
 EOF
       ;;
     no-config-marker)
-      cat > "$workdir/.ndf.json" <<EOF
+      mkdir -p "$workdir/.ndf/cli"
+      cat > "$workdir/.ndf/cli/install.json" <<EOF
 {
   "version": "4.2.0",
   "pinned_version": null,
@@ -49,7 +50,8 @@ EOF
   "fieldnotes_repo": "legacy/repo"
 }
 EOF
-      cat > "$workdir/.ndf.json" <<EOF
+      mkdir -p "$workdir/.ndf/cli"
+      cat > "$workdir/.ndf/cli/install.json" <<EOF
 {
   "version": "4.2.0",
   "pinned_version": null,

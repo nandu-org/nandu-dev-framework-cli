@@ -1,0 +1,14 @@
+# Scenario (c): pending-handoff-old-only
+#
+# Pre-state: project has `.ndf-pending-handoff` at the project root
+# only. No `.ndf/cli/` directory exists. The marker also lives at
+# OLD (`.ndf.json`) so the project is considered an NDF project for
+# is-project purposes.
+#
+# Verifies: `pendingHandoffExists` returns true via the OLD-path
+# fallback; `loadPendingHandoff` reads the body from OLD.
+#
+# Like (b), this is exercised indirectly — there is no direct CLI
+# subcommand that loads/consumes the handoff outside of `ndf update`'s
+# sentinel-skip branch. The fixture documents the layout the
+# dual-path helpers must handle correctly.

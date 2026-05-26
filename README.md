@@ -90,7 +90,7 @@ ndf update             # verifies your local copy is current
 - macOS / Linux: `~/.config/nandu/config.json` (mode 0600)
 - Windows: `%APPDATA%\nandu\config.json`
 
-The `fieldnotes_repo` for the project lives in the project's `.ndf.json` (committed by the project owner), so cloning the project gives you the right value automatically.
+The `fieldnotes_repo` for the project lives in the project's `.ndf/cli/install.json` (committed by the project owner), so cloning the project gives you the right value automatically.
 
 **Scaffolding a NEW project from scratch:**
 
@@ -102,7 +102,7 @@ ndf init \
   --fieldnotes-repo=<owner/repo>
 ```
 
-`ndf init` writes the framework files and creates `.ndf.json` with the project's `fieldnotes_repo`. Commit `.ndf.json` so coworkers don't need to set the repo path themselves.
+`ndf init` writes the framework files and creates `.ndf/cli/install.json` with the project's `fieldnotes_repo`. Commit `.ndf/cli/install.json` so coworkers don't need to set the repo path themselves.
 
 **Update an existing NDF project:**
 
@@ -123,13 +123,13 @@ When a release includes a structural migration, `ndf update` pre-delivers the mi
 
 After a non-no-op update, `ndf update` prints a **team handoff message** — a paste-ready block summarizing the version bump, what changed, and what coworkers need to do (`git pull`, `git merge main`, `/compact`). Designed for the updater to drop into team chat. See METHODOLOGY.md's "Framework updates during active development" section for the multi-developer workflow.
 
-### Reading `.ndf.json` from external tools
+### Reading the project marker from external tools
 
-Slash commands, hooks, and third-party tools should read `.ndf.json` through the CLI rather than via direct `jq` / `cat`:
+Slash commands, hooks, and third-party tools should read the project marker through the CLI rather than via direct `jq` / `cat`:
 
 ```bash
 ndf is-project                          # exit 0 = yes, 1 = no, 2 = error
-ndf marker-path                          # print absolute path to .ndf.json
+ndf marker-path                          # print absolute path to the marker
 ndf config get version                   # framework version
 ndf config get pinned_version            # pinned version (empty when null)
 ndf config get fieldnotes-repo --source  # repo + source ("marker" or "legacy-config") to stderr
@@ -174,7 +174,7 @@ After updating, verify with `ndf version`.
 - CLI source (this repo, public): [nandu-org/nandu-dev-framework-cli](https://github.com/nandu-org/nandu-dev-framework-cli)
 - Framework files (private, requires PAT): [nandu-org/nandu-dev-framework](https://github.com/nandu-org/nandu-dev-framework)
 - Per-developer config: `~/.config/nandu/config.json` on Unix / `%APPDATA%\nandu\config.json` on Windows (mode 0600 on Unix; created by `ndf login`)
-- Per-project marker: `.ndf.json` in the project root (commit this — it's how `ndf update` knows what's installed)
+- Per-project marker: `.ndf/cli/install.json` (commit this — it's how `ndf update` knows what's installed)
 
 ## Env vars (CI use)
 

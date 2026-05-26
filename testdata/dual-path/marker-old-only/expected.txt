@@ -1,0 +1,16 @@
+# Scenario (a): marker-old-only
+#
+# Pre-state: project has `.ndf.json` at the project root only. No
+# `.ndf/cli/` directory exists.
+#
+# Verifies: the CLI's dual-path read fallback in loadMarker finds the
+# marker at the OLD location.
+#
+# Expected behavior:
+# - `ndf is-project`    → exit 0 (marker found via OLD-path fallback).
+# - `ndf marker-path`   → prints the NEW path absolute (write-target
+#                          resolver is pure-NEW; this is by design — the
+#                          path the CLI would WRITE to, not necessarily
+#                          where the marker currently lives).
+# - `ndf config get version` → exit 0; stdout prints "4.2.0" (the
+#                              version field from the OLD marker).
