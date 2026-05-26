@@ -1,0 +1,12 @@
+Per-developer config (<CONFIG_PATH>):
+  framework_pat:  ghp_...cdef
+  fieldnotes_pat: ghp_...xwvu
+  fieldnotes_repo: legacy/repo  (source: legacy-config — v1.2.x layout)
+
+Per-project marker (./.ndf.json):
+  version:         4.2.0
+  pinned_version:  null
+  fieldnotes_repo: nandu-org/Vera-FieldNotes
+
+Resolved fieldnotes_repo (for /field-note in this directory):
+  nandu-org/Vera-FieldNotes

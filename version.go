@@ -73,10 +73,52 @@ package main
 // handoff text (the standard "pull main + /compact" block from
 // printTeamHandoff). Upgrading the CLI is recommended but not required.
 //
+// v2.4.0 — CLI-as-contract release. Three new read-only subcommands mediate
+// external access to the project marker (.ndf.json) so consumers (slash
+// commands, hooks, third-party tooling) no longer need to hit the file
+// directly:
+//
+//   - `ndf is-project` — exit 0 if cwd (or $CLAUDE_PROJECT_DIR) contains a
+//     parseable .ndf.json, 1 if absent, 2 on internal error. Silent on 0
+//     and 1. Replaces the `test -f .ndf.json` idiom.
+//
+//   - `ndf marker-path` — print the absolute resolved marker path the CLI
+//     would consult. Does not check existence; pair with `ndf is-project`
+//     if needed.
+//
+//   - `ndf config get <key> [--source]` — print a single config value to
+//     stdout. Closed key set: version, pinned_version, fieldnotes_repo.
+//     Accepts both kebab-case (fieldnotes-repo) and snake_case
+//     (fieldnotes_repo) via internal normalization. The --source flag
+//     prints the resolution source ("marker" or "legacy-config") to
+//     stderr. PATs deliberately NOT exposed here — use `ndf config show`
+//     for the masked view.
+//
+// Also refactors `markerPath()` to finally honor $CLAUDE_PROJECT_DIR (the
+// pre-existing comment claimed this; the implementation did not). The
+// resolver now returns an absolute path rooted at $CLAUDE_PROJECT_DIR (or
+// cwd if unset). All existing callers pick this up automatically. The
+// writeMarker temp file now lands next to the marker rather than in cwd.
+//
+// Exit-code convention for the new read-only mediated reads: 0 = success,
+// 1 = absent (only `is-project` uses this), 2 = internal error (stderr
+// message plus an `ndf:internal-error` stdout marker for environments that
+// swallow stderr).
+//
+// Pure-additive — no flag, schema, behavior, or output change on any other
+// code path. `cmdConfigShow` rendering is byte-for-byte preserved under
+// existing inputs except for one prose-only update to the legacy-config
+// annotation; a golden-file check in scripts/verify-show.sh enforces no
+// other drift. No manifest schema change. No `min_cli_version` bump on
+// any shipped framework — the framework-side migration to the new
+// subcommands ships separately in framework v4.3.0 (which bumps
+// `min_cli_version` to `2.4.0` once this CLI has propagated). Existing
+// scripts that read `.ndf.json` directly continue to work.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.3.2"
+var CLIVersion = "2.4.0"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"

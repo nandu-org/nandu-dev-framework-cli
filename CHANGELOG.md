@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.4.0 — 2026-05-26
+
+**CLI-as-contract for `.ndf.json` reads.** Three new read-only subcommands mediate external access to the project marker so consumers no longer hit the file directly — future moves or reshapes of the marker become CLI-internal refactors rather than breaking changes.
+
+### What's new
+
+- **`ndf is-project`** — exit 0 if cwd (or `$CLAUDE_PROJECT_DIR`) contains a parseable `.ndf.json`, exit 1 if absent, exit 2 on internal error. Silent on 0 and 1 — caller decides what to print. Replaces the `test -f .ndf.json` idiom external tools were using.
+- **`ndf marker-path`** — print the absolute resolved path to `.ndf.json` the CLI would consult (honors `$CLAUDE_PROJECT_DIR`). Does not check existence; pair with `ndf is-project` if you need that.
+- **`ndf config get <key> [--source]`** — print a single config value to stdout. Closed key set: `version`, `pinned_version`, `fieldnotes_repo`. Both kebab-case (`fieldnotes-repo`) and snake_case (`fieldnotes_repo`) accepted. `--source` flag prints `marker` or `legacy-config` to stderr (useful for tracing where a value resolved). PATs deliberately NOT exposed via this command — use `ndf config show` for the masked view.
+- **`markerPath()` honors `$CLAUDE_PROJECT_DIR`.** The resolver now returns an absolute path rooted at `$CLAUDE_PROJECT_DIR` (or cwd if unset), fixing a long-standing comment/code drift. All existing callers (`ndf init`, `ndf update`, `ndf config show`, `ndf config set fieldnotes-repo`) pick this up automatically.
+
+### Exit code conventions for read-only mediated reads
+
+Across `ndf is-project`, `ndf marker-path`, `ndf config get`: 0 = success, 1 = absent (only `is-project` uses this), 2 = internal error (stderr message plus an `ndf:internal-error` stdout marker so callers in environments that swallow stderr can still detect the failure).
+
+### Compatibility
+
+- **Pure-additive.** No flag, schema, behavior, or output change on any other code path.
+- **`cmdConfigShow` rendering is byte-for-byte preserved** under existing inputs, with one prose-only update: the legacy-config annotation reads `(source: legacy-config — v1.2.x layout)` instead of the prior `(legacy v1.2.x location; v1.3.0+ reads per-project .ndf.json first)`. Golden-file check in `scripts/verify-show.sh` enforces no other rendering drift.
+- **No manifest schema change.** No `min_cli_version` bump on any shipped framework. The framework-side migration to the new subcommands (`/field-note`, `/ndf-migrate`, allow-list) is a separate framework release (v4.3.0) that bumps `min_cli_version` to `2.4.0` once this CLI has propagated.
+- Existing scripts that read `.ndf.json` directly continue to work — direct-file access is not removed, just no longer the contracted reading path.
+
+---
+
 ## v2.3.2 — 2026-05-22
 
 **Paired with framework v4.2.0.** Adds the team-handoff dispatcher case for the new `v4.0-to-v4.2-heavyweight-phases` migration so coworkers running `ndf update` after the v4.2 framework lands see a paste-ready chat message covering the artifact-tree change.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config is the per-developer config file — tokens, plus a legacy
@@ -137,11 +138,70 @@ func maskToken(t string) string {
 	return t[:4] + "..." + t[len(t)-4:]
 }
 
-// markerPath returns the project marker path relative to cwd (or absolute if
-// CLAUDE_PROJECT_DIR is set in the env, mirroring the bash version's behavior
-// for the commit/push helper).
+// markerPath returns the absolute path to the project marker (.ndf.json).
+// Honors CLAUDE_PROJECT_DIR when set (matches Claude Code's convention for
+// rooting commands at the project directory); falls back to cwd otherwise.
+// Always returns an absolute path so callers can use it from any cwd.
 func markerPath() string {
-	return projectMarker // always cwd-relative; commands set their own working dir
+	projDir := os.Getenv("CLAUDE_PROJECT_DIR")
+	if projDir == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return projectMarker // last-ditch fallback; cwd-relative
+		}
+		projDir = cwd
+	}
+	abs, err := filepath.Abs(filepath.Join(projDir, projectMarker))
+	if err != nil {
+		return filepath.Join(projDir, projectMarker)
+	}
+	return abs
+}
+
+// resolveConfigKey returns (value, source, exists) for a single config key.
+// Sources: "marker" or "legacy-config". Exists distinguishes "key is in the
+// closed set" (exists=true, possibly with empty value) from "unknown key"
+// (exists=false). The closed set is the locked-design contract: callers
+// asking for {version, pinned_version, fieldnotes_repo} always get exit 0
+// with whatever value is present (empty if no data); any other key is an
+// "unknown key" error.
+//
+// Hyphen→underscore normalization at function entry: callers may pass
+// "fieldnotes-repo" or "fieldnotes_repo" interchangeably.
+//
+// Silent fallback on read errors: a malformed marker or config file yields
+// ("", source, true) here rather than failing the whole `config get` call.
+// The locked design routes parse-failure reporting through `cmdIsProject`
+// (the recommended pre-check); `config get` only reports "unknown key".
+func resolveConfigKey(key string) (value, source string, exists bool) {
+	// Normalize kebab → snake at entry.
+	norm := strings.ReplaceAll(key, "-", "_")
+	switch norm {
+	case "version":
+		m, _ := loadMarker()
+		if m == nil {
+			return "", "marker", true
+		}
+		return m.Version, "marker", true
+	case "pinned_version":
+		m, _ := loadMarker()
+		if m == nil || m.PinnedVersion == nil {
+			return "", "marker", true
+		}
+		return *m.PinnedVersion, "marker", true
+	case "fieldnotes_repo":
+		// Marker first, then legacy config — mirrors resolveFieldnotesRepo().
+		if m, _ := loadMarker(); m != nil && m.FieldnotesRepo != "" {
+			return m.FieldnotesRepo, "marker", true
+		}
+		if c, _ := loadConfig(); c != nil && c.FieldnotesRepo != "" {
+			return c.FieldnotesRepo, "legacy-config", true
+		}
+		// Closed-set key, no data anywhere — empty value, canonical source.
+		return "", "marker", true
+	}
+	// Key is NOT in the closed set — caller should exit 2 "unknown key".
+	return "", "", false
 }
 
 // pendingMigrationPath returns the path to the migration-in-progress marker.

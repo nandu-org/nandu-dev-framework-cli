@@ -54,8 +54,33 @@ func printHelpConfig() {
 Subcommands:
   show                          Print the resolved per-developer + per-project config (PATs masked)
   set <key> <value>             Set a configuration key (currently: fieldnotes-repo OWNER/REPO)
+  get <key> [--source]          Print a single config value to stdout (version, pinned_version, fieldnotes_repo)
 
 Tokens are set via ` + "`ndf login`" + `, not ` + "`ndf config set`" + `.`)
+}
+
+func printHelpConfigGet() {
+	rawErr(`Usage: ndf config get <key> [--source]
+
+Print a single config value to stdout. Mediates external reads of .ndf.json
+so consumers don't depend on its on-disk location or schema.
+
+Keys (kebab or snake form both accepted):
+  version            framework version from the marker
+  pinned_version     pinned version from the marker (empty when null)
+  fieldnotes_repo    project field-notes repo (marker, then legacy config)
+
+Flags:
+  --source           print the resolution source ("marker" or "legacy-config")
+                     to stderr before exit. Useful for callers needing to
+                     know whether a value came from the per-project marker
+                     or the per-developer legacy config.
+
+Exit codes:
+  0  resolved (value printed; may be empty)
+  2  unknown key or internal error (stderr message + ndf:internal-error stdout marker)
+
+Tokens are deliberately NOT exposed here — use ` + "`ndf config show`" + ` (masked).`)
 }
 
 func printHelpConfigSet() {
@@ -114,6 +139,9 @@ Commands:
   self-update    Print instructions for updating the ndf CLI binary itself
   config show    Print the resolved config (per-developer + per-project), PATs masked
   config set     Set a config key (currently: fieldnotes-repo OWNER/REPO)
+  config get     Print a single config value (version, pinned_version, fieldnotes_repo)
+  is-project     Exit 0 if cwd (or $CLAUDE_PROJECT_DIR) is an NDF project, 1 if not
+  marker-path    Print the absolute path to .ndf.json the CLI would consult
   version        Print the CLI version
   help           Print this help
 

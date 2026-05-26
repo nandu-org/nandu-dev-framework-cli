@@ -25,6 +25,20 @@
 //	    Set the project's field-notes repo on an already-initialized project.
 //	    Persists to .ndf.json (per-project, committed).
 //
+//	ndf is-project
+//	    Exit 0 if cwd (or $CLAUDE_PROJECT_DIR) contains a parseable .ndf.json,
+//	    1 if absent, 2 on internal error. Silent on 0 and 1.
+//
+//	ndf marker-path
+//	    Print the absolute resolved path to .ndf.json the CLI would consult
+//	    (honors $CLAUDE_PROJECT_DIR). Does not check existence.
+//
+//	ndf config get <key> [--source]
+//	    Print a single config value to stdout. Closed key set: version,
+//	    pinned_version, fieldnotes_repo. Accepts kebab or snake form.
+//	    --source prints the resolution source ("marker" or "legacy-config")
+//	    to stderr.
+//
 // After a non-no-op update, ndf prints a team handoff message — a paste-ready
 // block summarizing version bump, changes, and what coworkers need to do
 // (git pull, merge main, /compact).
@@ -64,6 +78,10 @@ func main() {
 		cmdSelfUpdate(args)
 	case "config":
 		cmdConfig(args)
+	case "is-project":
+		cmdIsProject(args)
+	case "marker-path":
+		cmdMarkerPath(args)
 	case "version", "--version", "-v":
 		fmt.Println("ndf v" + CLIVersion)
 	case "help", "--help", "-h":

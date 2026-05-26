@@ -92,6 +92,8 @@ func cmdConfig(args []string) {
 		cmdConfigShow()
 	case "set":
 		cmdConfigSet(args[1:])
+	case "get":
+		cmdConfigGet(args[1:])
 	case "", "-h", "--help", "help":
 		printHelpConfig()
 	default:
@@ -141,6 +143,51 @@ func cmdConfigSet(args []string) {
 	}
 }
 
+// cmdConfigGet handles `ndf config get <key> [--source]`.
+//
+// Exit codes:
+//
+//	0 — key resolved (value printed to stdout, possibly empty)
+//	1 — unused for now (reserved; cmdIsProject uses it for absence)
+//	2 — internal error (malformed marker, or unknown key)
+//
+// --source flag: prints the resolution source ("marker" or "legacy-config")
+// to stderr before exit. Useful for callers that want to know whether the
+// value came from the per-project marker or the per-developer legacy config.
+//
+// Hyphen↔underscore normalization happens inside resolveConfigKey.
+func cmdConfigGet(args []string) {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		printHelpConfigGet()
+		return
+	}
+	key := args[0]
+	showSource := false
+	for _, a := range args[1:] {
+		switch a {
+		case "--source":
+			showSource = true
+		case "-h", "--help":
+			printHelpConfigGet()
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", a)
+			fmt.Println("ndf:internal-error")
+			os.Exit(2)
+		}
+	}
+	value, source, exists := resolveConfigKey(key)
+	if !exists {
+		fmt.Fprintf(os.Stderr, "unknown config key: %s. Supported: version, pinned_version, fieldnotes_repo (hyphen forms also accepted).\n", key)
+		fmt.Println("ndf:internal-error")
+		os.Exit(2)
+	}
+	fmt.Println(value)
+	if showSource {
+		fmt.Fprintln(os.Stderr, source)
+	}
+}
+
 func cmdConfigShow() {
 	cfgPath := configFile()
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
@@ -155,7 +202,7 @@ func cmdConfigShow() {
 	fmt.Println("  framework_pat:  " + maskToken(c.FrameworkPAT))
 	fmt.Println("  fieldnotes_pat: " + maskToken(c.FieldnotesPAT))
 	if c.FieldnotesRepo != "" {
-		fmt.Println("  fieldnotes_repo: " + c.FieldnotesRepo + "  (legacy v1.2.x location; v1.3.0+ reads per-project .ndf.json first)")
+		fmt.Println("  fieldnotes_repo: " + c.FieldnotesRepo + "  (source: legacy-config — v1.2.x layout)")
 	}
 	fmt.Println()
 

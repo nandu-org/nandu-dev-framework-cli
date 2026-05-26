@@ -45,6 +45,7 @@ Before tagging:
    ```
    This catches regressions in config-file reads, manifest parsing, and the update flow. Skipping this check is how the v2.0.0 macOS config-path bug got out the door — `version` and `help` don't load config, so they don't surface that class of bug.
 6. **Read the CHANGELOG draft once cold.** No internal commentary, no project-specific names, no rationale paragraphs. Sanitized factual notes only.
+7. **Golden-file check for `ndf config show`.** Run `bash scripts/verify-show.sh` from the CLI repo root. All 4 fixtures must PASS. Catches accidental drift in `cmdConfigShow`'s rendering — clients have allow-list entries for `Bash(ndf config show:*)` and external tools parse this output by line; any rendering change is potentially breaking.
 
 If any check fails, fix it before tagging.
 

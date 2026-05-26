@@ -123,6 +123,24 @@ When a release includes a structural migration, `ndf update` pre-delivers the mi
 
 After a non-no-op update, `ndf update` prints a **team handoff message** — a paste-ready block summarizing the version bump, what changed, and what coworkers need to do (`git pull`, `git merge main`, `/compact`). Designed for the updater to drop into team chat. See METHODOLOGY.md's "Framework updates during active development" section for the multi-developer workflow.
 
+### Reading `.ndf.json` from external tools
+
+Slash commands, hooks, and third-party tools should read `.ndf.json` through the CLI rather than via direct `jq` / `cat`:
+
+```bash
+ndf is-project                          # exit 0 = yes, 1 = no, 2 = error
+ndf marker-path                          # print absolute path to .ndf.json
+ndf config get version                   # framework version
+ndf config get pinned_version            # pinned version (empty when null)
+ndf config get fieldnotes-repo --source  # repo + source ("marker" or "legacy-config") to stderr
+```
+
+Keys accept both kebab-case (`fieldnotes-repo`) and snake_case (`fieldnotes_repo`). Closed key set — tokens are deliberately NOT exposed (use `ndf config show` for the masked view).
+
+Exit codes across these subcommands: 0 = success, 1 = absent (`is-project` only), 2 = internal error (stderr message plus `ndf:internal-error` stdout marker for environments that swallow stderr).
+
+This indirection lets future relocations of the marker file (or schema reshape) become CLI-internal refactors rather than breaking changes for every consumer.
+
 ## Update the CLI
 
 `ndf update` updates the **framework files in a project**; it does NOT update the `ndf` CLI binary itself. To update the CLI, run:

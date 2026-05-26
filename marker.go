@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 )
 
@@ -86,7 +87,7 @@ func writeMarker(m *Marker) error {
 	}
 	data = append(data, '\n')
 
-	tmp, err := os.CreateTemp(".", ".ndf.json.*")
+	tmp, err := os.CreateTemp(filepath.Dir(markerPath()), ".ndf.json.*")
 	if err != nil {
 		return fmt.Errorf("create temp marker: %w", err)
 	}
