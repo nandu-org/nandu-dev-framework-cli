@@ -155,10 +155,24 @@ package main
 // NEW, read-OLD-then-write-NEW). Added to `RELEASE.md` pre-flight
 // alongside the existing golden-file check.
 //
+// v2.5.1 — bug fix: `ndf update` no longer silently overwrites an untracked
+// file when creating a net-new framework file. The per-file loop's net-new
+// branch previously called fetchFileTo unconditionally (atomic temp+rename,
+// which overwrites without checking), so a client who had authored their own
+// file at the exact path a brand-new framework file targets would have it
+// clobbered with no warning. The branch now os.Stat's the destination first:
+// if a file already exists there, it falls to a diff-and-prompt
+// (handleNetNewCollision) showing "your existing file" vs "the framework's
+// new file" with a [r]eplace / [s]kip / [b]ackup-and-replace choice
+// (defaulting to skip); the normal empty-path case keeps the silent-create
+// behavior. Surfaces with framework v4.7.0, which adds the first net-new
+// agent file in a while (`.claude/agents/acceptance-verifier.md`). No
+// manifest-format change; no `min_cli_version` bump.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.5.0"
+var CLIVersion = "2.5.1"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"

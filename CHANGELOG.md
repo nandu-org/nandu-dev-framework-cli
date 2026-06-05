@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.5.1 — 2026-06-05
+
+**Bug fix: `ndf update` never silently overwrites a client's own file when creating a net-new framework file.** The per-file loop's net-new branch fetched the file unconditionally (atomic temp+rename, which overwrites without checking), so a client who had authored their own untracked file at the exact path a brand-new framework file targets would have it clobbered with no warning. The branch now checks the destination on disk first and falls to a diff-and-prompt on collision instead.
+
+### What's fixed
+
+- **Net-new framework files no longer clobber untracked files on disk.** When a manifest file is absent from the installed checksums (a net-new file) but a file already exists at its destination path, `ndf update` now surfaces a diff of your existing file vs the framework's new file and prompts `[r]eplace / [s]kip / [b]ackup-and-replace`, defaulting to skip — the same machinery the existing conflict path uses, but with wording accurate to this case (a pre-existing untracked file, not a file changed both locally and upstream). The normal case — destination path empty — keeps the previous silent-create behavior unchanged.
+
+### Compatibility
+
+- **No manifest schema or format change. No `min_cli_version` bump on any framework.** Pure bugfix on the `ndf update` file loop; every other code path is byte-for-byte unchanged.
+- Surfaces with framework v4.7.0, the first release in a while to add a net-new agent file (`.claude/agents/acceptance-verifier.md`) — exactly the kind of brand-new path where a client might already have authored a same-named file.
+
+---
+
 ## v2.5.0 — 2026-05-26
 
 **CLI-managed state consolidated under `.ndf/cli/`.** Pairs with framework v4.4.0 (to ship after propagation). The CLI now reads the project marker at `.ndf/cli/install.json` and writes new sentinels and pending markers under `.ndf/cli/sentinels/`, `.ndf/cli/pending-migration`, and `.ndf/cli/pending-handoff`.

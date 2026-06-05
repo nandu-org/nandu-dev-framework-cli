@@ -164,7 +164,20 @@ func cmdUpdate(args []string) {
 			continue
 		}
 		if _, hadBefore := installed[f.Path]; !hadBefore {
-			// Net-new file.
+			// Net-new file — the framework wants to create a path it has
+			// never installed here before. The normal case is that nothing
+			// occupies that path yet, so we silently create it. But if the
+			// client authored their OWN untracked file at this path, a
+			// blind fetchFileTo would atomically clobber it (temp+rename
+			// overwrites unconditionally). Guard with an os.Stat first.
+			if _, err := os.Stat(f.Path); err == nil {
+				// Something already exists on disk at the path a net-new
+				// framework file wants to create — an untracked-file
+				// collision. Never silently overwrite a client's file:
+				// hand off to the diff-and-prompt path.
+				handleNetNewCollision(ref, f, &changes)
+				continue
+			}
 			info("  new: %s", f.Path)
 			if err := fetchFileTo(ref, f.Path, f.Path); err != nil {
 				die("fetch %s: %v", f.Path, err)
@@ -393,6 +406,58 @@ func handleUpdate(ref string, f ManifestFile, installedSha string, changes *[]ch
 		}
 	default:
 		info("    skipped %s.", f.Path)
+	}
+}
+
+// handleNetNewCollision handles the case where a net-new framework file
+// (one the framework has never installed in this project before) wants to
+// create a path that is ALREADY occupied by a file on disk — an untracked
+// file the client authored themselves. The "never silently overwrite a
+// client's file" guarantee forbids the blind silent-create the net-new
+// branch would otherwise do, so we surface a diff and prompt instead.
+//
+// Wording note: this is deliberately NOT handleUpdate's "changed both
+// locally and upstream" message. The framework never installed anything
+// here, so there is no upstream change relative to a prior install — there
+// is simply a pre-existing untracked file sitting where the framework now
+// wants to put a brand-new file. The prompt reflects that accurately.
+//
+// Reuses handleUpdate's temp-file + printDiff + [r]/[s]/[b] machinery, with
+// skip as the default — when in doubt we preserve the client's file.
+func handleNetNewCollision(ref string, f ManifestFile, changes *[]change) {
+	tmp := f.Path + ".ndf-incoming"
+	if err := fetchFileTo(ref, f.Path, tmp); err != nil {
+		die("fetch %s: %v", f.Path, err)
+	}
+	defer os.Remove(tmp)
+
+	warn("  %s: a file already exists here that the framework did not install; not overwriting it.", f.Path)
+	existingBytes, _ := readAll(f.Path)
+	frameworkBytes, _ := readAll(tmp)
+	printDiff("yours (existing): "+f.Path, existingBytes, "framework (new): "+f.Path, frameworkBytes)
+
+	choice := prompt("  [r]eplace your file with the framework version, [s]kip, or [b]ackup-and-replace? (default: s)", "s")
+	switch strings.ToLower(strings.TrimSpace(choice)) {
+	case "r":
+		if err := copyFile(tmp, f.Path); err != nil {
+			warn("    replace failed: %v", err)
+		} else {
+			info("    replaced %s with the framework version.", f.Path)
+			*changes = append(*changes, change{Kind: changeNew, Path: f.Path})
+		}
+	case "b":
+		if err := copyFile(f.Path, f.Path+".local-backup"); err == nil {
+			if err := copyFile(tmp, f.Path); err == nil {
+				info("    backed up %s → %s.local-backup; installed the framework version.", f.Path, f.Path)
+				*changes = append(*changes, change{Kind: changeNew, Path: f.Path})
+			} else {
+				warn("    replace failed after backup: %v", err)
+			}
+		} else {
+			warn("    backup failed: %v — not replacing.", err)
+		}
+	default:
+		info("    skipped %s; your existing file is preserved.", f.Path)
 	}
 }
 
