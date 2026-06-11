@@ -489,7 +489,7 @@ func copyFile(src, dst string) error {
 // and the .ndf-pending-migration marker gets re-written. v2.2.0 had a
 // short-circuit here that died with "A migration delivery from a prior
 // `ndf update` is already on disk." That short-circuit was removed in
-// v2.3.1 (Billy's 2026-05-20 field-note scenario): the message was
+// v2.3.1 (a 2026-05-20 field-note scenario): the message was
 // misleading when the project's identity tag changed after a prior
 // gate-fired delivery, and re-firing the gate is safer than refusing
 // to do so — it always lands the correct, current spec for THIS run.

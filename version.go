@@ -37,7 +37,7 @@ package main
 // v2.3.1 — three coordinated removals, paired with framework v4.0.2:
 //
 //   - Drop the preflight short-circuit that died "A migration delivery
-//     from a prior `ndf update` is already on disk." Billy's 2026-05-20
+//     from a prior `ndf update` is already on disk." A 2026-05-20
 //     field note surfaced the failure mode: when the project's identity
 //     tag changed after a prior gate-fired delivery, the short-circuit's
 //     recovery message ("run /ndf-migrate") pointed at the wrong action
@@ -50,9 +50,10 @@ package main
 //     optional YAML companions alongside each spec is removed: the
 //     gate-fired branch no longer fetches anything but the spec itself,
 //     the pending-migration-files directory constant is gone, and the
-//     404-tolerant fetcher is gone. Post-Vera the mechanism has no use
-//     case — AMVisor will self-author, future canary-shape clients are
-//     unbounded and self-author too. The migration spec creates the
+//     404-tolerant fetcher is gone. The mechanism has no remaining use
+//     case — the one migration that consumed pre-delivered maps has
+//     completed, and canary-shape projects now self-author their maps
+//     at /ndf-migrate time. The migration spec creates the
 //     pending-migration-files directory itself via `mkdir -p` if it
 //     needs to write a self-authored map; the CLI no longer creates or
 //     clears that directory.
@@ -169,10 +170,17 @@ package main
 // agent file in a while (`.claude/agents/acceptance-verifier.md`). No
 // manifest-format change; no `min_cli_version` bump.
 //
+// v2.5.2 — maintenance: the `ndf init` field-notes-repo prompt and the
+// repo-slug validation error now illustrate the OWNER/REPO shape with a
+// neutral placeholder (`nandu-org/Example-FieldNotes`); golden-file
+// fixtures updated in lockstep. Comment-level cleanups in config.go,
+// update.go, and this file. No flag, schema, or behavior change beyond the two example
+// strings; no manifest-format change; no `min_cli_version` bump.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.5.1"
+var CLIVersion = "2.5.2"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"

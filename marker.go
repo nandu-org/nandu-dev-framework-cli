@@ -173,7 +173,7 @@ var repoSlugRE = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
 // init time, and `ndf config set fieldnotes-repo OWNER/REPO`.
 func validateRepoSlug(s string) error {
 	if !repoSlugRE.MatchString(s) {
-		return fmt.Errorf("expected OWNER/REPO (e.g. nandu-org/Vera-FieldNotes), got %q", s)
+		return fmt.Errorf("expected OWNER/REPO (e.g. nandu-org/Example-FieldNotes), got %q", s)
 	}
 	return nil
 }

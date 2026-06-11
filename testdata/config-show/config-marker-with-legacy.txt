@@ -6,7 +6,7 @@ Per-developer config (<CONFIG_PATH>):
 Per-project marker (./.ndf/cli/install.json):
   version:         4.2.0
   pinned_version:  null
-  fieldnotes_repo: nandu-org/Vera-FieldNotes
+  fieldnotes_repo: nandu-org/Example-FieldNotes
 
 Resolved fieldnotes_repo (for /field-note in this directory):
-  nandu-org/Vera-FieldNotes
+  nandu-org/Example-FieldNotes

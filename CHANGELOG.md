@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.5.2 — 2026-06-11
+
+**Neutral placeholders in prompts and error messages.** The `ndf init` field-notes-repo prompt and the repo-slug validation error now illustrate the OWNER/REPO shape as `nandu-org/Example-FieldNotes`.
+
+### What's changed
+
+- **`ndf init`'s interactive field-notes-repo prompt and the `fieldnotes_repo` validation error** use a neutral placeholder example instead of a specific repo name. Test fixtures updated to match. No flag, schema, or behavior change.
+
+### Compatibility
+
+- **No manifest schema or format change. No `min_cli_version` bump on any framework.** Every code path other than the two example strings is byte-for-byte unchanged.
+
+---
+
 ## v2.5.1 — 2026-06-05
 
 **Bug fix: `ndf update` never silently overwrites a client's own file when creating a net-new framework file.** The per-file loop's net-new branch fetched the file unconditionally (atomic temp+rename, which overwrites without checking), so a client who had authored their own untracked file at the exact path a brand-new framework file targets would have it clobbered with no warning. The branch now checks the destination on disk first and falls to a diff-and-prompt on collision instead.

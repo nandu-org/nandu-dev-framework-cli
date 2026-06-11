@@ -37,7 +37,7 @@ EOF
   "version": "4.2.0",
   "pinned_version": null,
   "installed_checksums": {},
-  "fieldnotes_repo": "nandu-org/Vera-FieldNotes"
+  "fieldnotes_repo": "nandu-org/Example-FieldNotes"
 }
 EOF
       ;;
@@ -56,7 +56,7 @@ EOF
   "version": "4.2.0",
   "pinned_version": null,
   "installed_checksums": {},
-  "fieldnotes_repo": "nandu-org/Vera-FieldNotes"
+  "fieldnotes_repo": "nandu-org/Example-FieldNotes"
 }
 EOF
       ;;

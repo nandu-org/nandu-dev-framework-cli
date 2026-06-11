@@ -114,7 +114,7 @@ func cmdInit(args []string) {
 	// don't have a field-notes repo provisioned at init time).
 	if cliFieldnotesRepo == "" {
 		cliFieldnotesRepo = prompt(
-			"Field-notes repo (e.g. nandu-org/Vera-FieldNotes) — leave empty to skip:",
+			"Field-notes repo (e.g. nandu-org/Example-FieldNotes) — leave empty to skip:",
 			"",
 		)
 		if cliFieldnotesRepo != "" {

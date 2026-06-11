@@ -10,3 +10,5 @@
 *.swp
 .idea/
 .vscode/
+/nandu-dev-framework-cli
+.claude/

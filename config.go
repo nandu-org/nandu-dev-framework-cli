@@ -13,8 +13,8 @@ import (
 // fieldnotes_repo per-project (in .ndf.json), but legacy reads still
 // fall back to this file (see resolveFieldnotesRepo).
 //
-// Schema MUST stay byte-compatible with the bash CLI's writes — Vera and
-// any other deployed install is reading config files written by ndf v1.x.
+// Schema MUST stay byte-compatible with the bash CLI's writes — deployed
+// installs are still reading config files written by ndf v1.x.
 type Config struct {
 	FrameworkPAT   string `json:"framework_pat,omitempty"`
 	FieldnotesPAT  string `json:"fieldnotes_pat,omitempty"`
