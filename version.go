@@ -177,10 +177,30 @@ package main
 // update.go, and this file. No flag, schema, or behavior change beyond the two example
 // strings; no manifest-format change; no `min_cli_version` bump.
 //
+// v2.6.0 — defense-in-depth for client-customized framework files. A new
+// optional manifest field, `user_customizable: true`, marks files the
+// framework scaffolds once but the client owns thereafter (currently only
+// `.claude/hooks/pre-commit-tests.sh`, the placeholder a client replaces with
+// their real test command). `ndf update` routes such files through
+// handleUserCustomizable, whose decision is deliberately marker-INDEPENDENT:
+// it compares on-disk content directly against the manifest checksum (absent
+// -> create the placeholder; matches -> no-op; differs -> preserve, never
+// overwrite) and lists any preserved file in a post-update summary. This
+// hardens the "don't clobber my customization" guarantee against a missing or
+// stale marker entry — the field-note scenario where a multi-version update
+// across the .ndf.json -> .ndf/cli/install.json relocation could leave the
+// installed_checksums entry absent. (The net-new collision guard added in
+// v2.5.1 already protected the live Go CLI against silent overwrite; this
+// makes the protection explicit and independent of marker state.) Surfaces
+// with framework v4.7.3, which flags pre-commit-tests.sh. Optional field —
+// older CLIs ignore it (JSON tolerates unknown keys) and continue to skip the
+// unchanged placeholder via the installed==manifest path, so no
+// `min_cli_version` bump.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.5.2"
+var CLIVersion = "2.6.0"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"

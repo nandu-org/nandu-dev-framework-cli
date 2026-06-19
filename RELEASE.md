@@ -29,7 +29,7 @@ When in doubt: bump conservatively (more patches, fewer minors). Anything that c
 
 Before tagging:
 
-1. **All tests pass.** `go test ./...` (when tests exist; v2.0.x has none yet — adding them is on the roadmap).
+1. **All tests pass.** `go test ./...`. (Go unit tests began with the v2.6.0 `update_test.go` covering the `user_customizable` safeguard; broaden coverage as touched.)
 2. **`go vet ./...` clean.**
 3. **Working tree clean** on `main`. No uncommitted state.
 4. **Local build runs natively on macOS.** GitHub Actions cross-compiles, but the maintainer's Mac is the first place a darwin binary actually executes:

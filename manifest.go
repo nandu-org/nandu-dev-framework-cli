@@ -30,6 +30,12 @@ type ManifestFile struct {
 	Path        string `json:"path"`
 	Checksum    string `json:"checksum"`
 	RenamedFrom string `json:"renamed_from,omitempty"`
+	// UserCustomizable marks a file the framework scaffolds once but the
+	// client owns thereafter (e.g. the pre-commit test hook). `update` never
+	// silent-replaces these — see handleUserCustomizable in update.go.
+	// Optional field; older CLIs that predate it ignore it (JSON tolerates
+	// unknown keys), so adding it does NOT force a min_cli_version bump.
+	UserCustomizable bool `json:"user_customizable,omitempty"`
 }
 
 // parseManifest decodes a manifest from raw bytes.

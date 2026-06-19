@@ -156,9 +156,20 @@ func cmdUpdate(args []string) {
 
 	// ---- pass 1: process every file in the new manifest ----
 	var changes []change
+	var customizablePreserved []string
 	installed := marker.InstalledChecksums
 
 	for _, f := range manifest.Files {
+		// user_customizable files (e.g. the pre-commit test hook) are
+		// client-owned after scaffolding — never silent-replace them. This
+		// path deliberately ignores the marker's installed checksum and
+		// compares on-disk content directly against the manifest, so the
+		// protection holds even when the marker entry is missing or stale
+		// (the field-note scenario that motivated the flag).
+		if f.UserCustomizable {
+			handleUserCustomizable(ref, f, &changes, &customizablePreserved)
+			continue
+		}
 		if f.RenamedFrom != "" {
 			handleRename(ref, f, installed, &changes)
 			continue
@@ -251,6 +262,14 @@ func cmdUpdate(args []string) {
 	}
 
 	ok("ndf update complete. Now at v%s.", manifest.Version)
+
+	if len(customizablePreserved) > 0 {
+		ok("")
+		ok("Left your customized file(s) untouched (the framework never overwrites these):")
+		for _, p := range customizablePreserved {
+			ok("  %s", p)
+		}
+	}
 
 	// ---- offer commit + push BEFORE the team handoff ----
 	// The handoff tells coworkers to `git pull`; if our changes aren't
@@ -458,6 +477,51 @@ func handleNetNewCollision(ref string, f ManifestFile, changes *[]change) {
 		}
 	default:
 		info("    skipped %s; your existing file is preserved.", f.Path)
+	}
+}
+
+// customizableAction decides what `update` should do with a user_customizable
+// file, given its current on-disk checksum (empty = absent) and the manifest
+// checksum. Pure + marker-independent on purpose — see handleUserCustomizable.
+//
+//	"" (absent on disk)            -> "create"   (deliver the placeholder)
+//	== manifestChecksum (matches)  -> "skip"     (nothing to do)
+//	anything else (client-owned)   -> "preserve" (never overwrite)
+func customizableAction(currentChecksum, manifestChecksum string) string {
+	switch currentChecksum {
+	case "":
+		return "create"
+	case manifestChecksum:
+		return "skip"
+	default:
+		return "preserve"
+	}
+}
+
+// handleUserCustomizable processes a manifest file flagged user_customizable.
+// The framework scaffolds these once (e.g. .claude/hooks/pre-commit-tests.sh,
+// a placeholder the client replaces with their real test command) but never
+// owns them afterward. Unlike handleUpdate, the decision here does NOT consult
+// the marker's installed checksum: it compares on-disk content directly against
+// the manifest. That makes the "don't clobber my customization" guarantee
+// robust even when the marker's installed_checksums entry is missing or stale —
+// the exact field-note failure (a multi-version update across the
+// .ndf.json -> .ndf/cli/install.json relocation left the entry absent, and the
+// pre-Go bash CLI then treated the customized file as net-new and overwrote it).
+func handleUserCustomizable(ref string, f ManifestFile, changes *[]change, preserved *[]string) {
+	switch customizableAction(sha256OfFileOrEmpty(f.Path), f.Checksum) {
+	case "create":
+		info("  new (customizable): %s", f.Path)
+		if err := fetchFileTo(ref, f.Path, f.Path); err != nil {
+			die("fetch %s: %v", f.Path, err)
+		}
+		*changes = append(*changes, change{Kind: changeNew, Path: f.Path})
+	case "skip":
+		// On disk already matches the framework placeholder; nothing to do.
+	default: // "preserve"
+		// Client has customized it (on disk differs from the manifest).
+		// Never silent-replace; surface it in the post-update summary.
+		*preserved = append(*preserved, f.Path)
 	}
 }
 

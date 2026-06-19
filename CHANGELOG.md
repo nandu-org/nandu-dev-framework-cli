@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.6.0 — 2026-06-19
+
+**Defense-in-depth for client-customized framework files.** A new optional manifest field, `user_customizable: true`, marks files the framework scaffolds once but you own thereafter — currently the pre-commit test hook (`.claude/hooks/pre-commit-tests.sh`), the placeholder you replace with your project's real test command. `ndf update` now guarantees it will never silently overwrite such a file.
+
+### What's changed
+
+- **`ndf update` never silent-replaces a `user_customizable` file.** The decision compares the file on disk directly against the framework's version, independent of the project marker's recorded checksums: absent on disk → the placeholder is created; identical to the framework → left alone; **different from the framework → your version is preserved, never overwritten.** Any preserved file is listed in a short post-update summary.
+- Because the decision ignores the marker, the guarantee holds even if the marker's `installed_checksums` entry for the file is missing or stale (for example, after a multi-version update that relocated the marker).
+
+### Compatibility
+
+- **The new `user_customizable` manifest field is optional. No `min_cli_version` bump.** Older CLIs ignore the field (JSON tolerates unknown keys) and continue to skip the unchanged placeholder via the existing "framework hasn't changed it" path. Surfaces with framework v4.7.3, which flags `pre-commit-tests.sh`.
+
+---
+
 ## v2.5.2 — 2026-06-11
 
 **Neutral placeholders in prompts and error messages.** The `ndf init` field-notes-repo prompt and the repo-slug validation error now illustrate the OWNER/REPO shape as `nandu-org/Example-FieldNotes`.
