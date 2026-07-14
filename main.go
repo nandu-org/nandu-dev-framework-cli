@@ -39,6 +39,11 @@
 //	    --source prints the resolution source ("marker" or "legacy-config")
 //	    to stderr.
 //
+//	ndf version   (aliases: --version, -v)
+//	    Print the ndf CLI version. Inside an NDF project, also print the
+//	    installed framework version on a second line. Human-facing readout;
+//	    for a scripted framework-version read use `ndf config get version`.
+//
 // After a non-no-op update, ndf prints a team handoff message — a paste-ready
 // block summarizing version bump, changes, and what coworkers need to do
 // (git pull, merge main, /compact).
@@ -55,7 +60,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 )
 
@@ -83,7 +87,7 @@ func main() {
 	case "marker-path":
 		cmdMarkerPath(args)
 	case "version", "--version", "-v":
-		fmt.Println("ndf v" + CLIVersion)
+		cmdVersion(args)
 	case "help", "--help", "-h":
 		printHelp()
 	default:

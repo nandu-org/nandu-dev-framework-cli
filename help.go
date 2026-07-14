@@ -59,6 +59,17 @@ Subcommands:
 Tokens are set via ` + "`ndf login`" + `, not ` + "`ndf config set`" + `.`)
 }
 
+func printHelpConfigShow() {
+	rawErr(`Usage: ndf config show
+
+Print the resolved configuration: the per-developer config (tokens, masked) and,
+when run inside an NDF project, the per-project marker (framework version,
+pinned version, field-notes repo) plus the resolved field-notes repo for this
+directory.
+
+Read-only; prints nothing sensitive in the clear. Tokens are set via ` + "`ndf login`" + `.`)
+}
+
 func printHelpConfigGet() {
 	rawErr(`Usage: ndf config get <key> [--source]
 
@@ -77,8 +88,10 @@ Flags:
                      or the per-developer legacy config.
 
 Exit codes:
-  0  resolved (value printed; may be empty)
-  2  unknown key or internal error (stderr message + ndf:internal-error stdout marker)
+  0  resolved (value printed; may be empty). A malformed or absent marker also
+     exits 0 with an empty value — run ` + "`ndf is-project`" + ` (exit 2 on a corrupt
+     marker) if you need to tell "no value" apart from "no/corrupt project".
+  2  unknown key, or a bad flag to this command (stderr message + ndf:internal-error stdout marker)
 
 Tokens are deliberately NOT exposed here — use ` + "`ndf config show`" + ` (masked).`)
 }
@@ -127,6 +140,24 @@ To update the framework FILES in your project (distinct from updating the CLI),
 use ` + "`ndf update`" + `.`)
 }
 
+func printHelpVersion() {
+	rawErr(`Usage: ndf version
+
+Print the ndf CLI binary version. When run inside an NDF project (cwd or
+$CLAUDE_PROJECT_DIR contains a project marker), also print the installed
+framework version on a second line:
+
+  ndf v` + CLIVersion + `
+  framework vX.Y.Z            (plus " (pinned: vX.Y.Z)" when the project pins a version)
+
+The first line (the CLI version) is stable regardless of project context.
+` + "`ndf --version`" + ` and ` + "`ndf -v`" + ` are aliases.
+
+For a scripted read of the framework version, use ` + "`ndf config get version`" + `
+(the machine-readable contract) rather than parsing this output. To see the
+full resolved config, use ` + "`ndf config show`" + `.`)
+}
+
 func printHelp() {
 	rawErr(`ndf — Nandu Development Framework CLI (v` + CLIVersion + `)
 
@@ -142,7 +173,7 @@ Commands:
   config get     Print a single config value (version, pinned_version, fieldnotes_repo)
   is-project     Exit 0 if cwd (or $CLAUDE_PROJECT_DIR) is an NDF project, 1 if not
   marker-path    Print the absolute path to the project marker the CLI would consult
-  version        Print the CLI version
+  version        Print the ndf CLI version (plus the framework version when in a project)
   help           Print this help
 
 Run ` + "`ndf <command> --help`" + ` for command-specific help.

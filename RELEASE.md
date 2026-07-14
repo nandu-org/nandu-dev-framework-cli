@@ -166,6 +166,8 @@ ndf version    # → ndf v<next-version>
 
 If the tap was previously installed at the old version, `brew upgrade` is enough. Fresh install: `brew install nandu-org/tap/ndf`.
 
+> Since CLI v2.7.0, `ndf version` prints a second `framework v<X.Y.Z>` line when run **inside an NDF project**. The first line is always `ndf v<version>` (what these checks match); run it inside a real project to also confirm the framework read, or in any non-project directory (like the CLI repo itself) for the single-line CLI-version check.
+
 ### Scoop (requires Windows)
 
 ```powershell
@@ -241,6 +243,6 @@ The release workflow will be amended to add signing steps inside the matrix per 
 [ ] Capture checksums from release
 [ ] Update Formula/ndf.rb (version + 3 sha256s), commit, push
 [ ] Update bucket/ndf.json (version + url + 1 hash), validate JSON, commit, push
-[ ] brew upgrade, ndf version, ndf update against a real project
+[ ] brew upgrade, ndf version (in a project → 2 lines: CLI + framework), ndf update against a real project
 [ ] (Internal) KB Version History entry — see ndf-maintainer skill
 ```

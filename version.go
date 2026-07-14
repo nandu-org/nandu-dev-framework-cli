@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 // CLIVersion is the version of the ndf CLI binary itself.
 //
 // Versioning policy (from the ndf-maintainer skill):
@@ -197,10 +199,42 @@ package main
 // unchanged placeholder via the installed==manifest path, so no
 // `min_cli_version` bump.
 //
+// v2.7.0 — `ndf version` now reports the installed framework version too. The
+// prior command printed only the CLI binary version; a user standing in a
+// folder with an NDF install reasonably expects to also see which framework
+// version is installed there (the single most common thing "what version am I
+// on?" means in an NDF project). The command now reads the project marker (the
+// same read `ndf config get version` performs) and, when a marker is present,
+// prints a second line: `framework v<X.Y.Z>` (plus a `(pinned: v<X.Y.Z>)`
+// annotation when pinned_version is set).
+//
+// Deliberate boundaries:
+//   - Line 1 stays byte-identical (`ndf v<CLIVersion>`), so the CLI-version
+//     read that RELEASE.md smoke checks, README, and `self-update`'s "verify:
+//     ndf version" hint all rely on is unchanged. The framework line is
+//     additive and only appears inside an NDF project.
+//   - The framework line is a HUMAN-facing convenience, not a machine contract.
+//     Programmatic reads of the framework version stay on the CLI-as-contract
+//     surface (`ndf config get version`); nothing should parse `ndf version`
+//     for the framework value. The formatting is intentionally prose ("framework
+//     v4.15.0"), not a bare version, to discourage that.
+//   - A malformed/unreadable marker degrades gracefully: `ndf version` still
+//     prints the CLI line and exits 0, emitting a stderr warning rather than
+//     dying. `ndf version` must never become a hard failure just because a
+//     project marker is corrupt.
+//   - `ndf version --help` (and `-h`) now prints command help instead of
+//     silently ignoring the flag and printing the version — closing a small
+//     consistency gap with every other subcommand. `ndf --version` / `ndf -v`
+//     keep printing the version (no args to interpret).
+//
+// No framework version bump — framework files are untouched. No manifest-format
+// change; no `min_cli_version` bump (older CLIs simply keep printing the CLI
+// line only). Minor bump (2.6.0 → 2.7.0): new capability on an existing command.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.6.0"
+var CLIVersion = "2.7.0"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"
@@ -208,3 +242,67 @@ const FrameworkRepo = "nandu-org/nandu-dev-framework"
 // CLIRepo is the GitHub slug of this CLI's repo (public). Used by the team
 // handoff message and any self-update logic.
 const CLIRepo = "nandu-org/nandu-dev-framework-cli"
+
+// cmdVersion handles `ndf version` (and the `--version` / `-v` aliases routed
+// here from main). It prints the CLI binary version and, when the cwd (or
+// $CLAUDE_PROJECT_DIR) is an NDF project, the installed framework version.
+//
+// A malformed marker is non-fatal: the CLI line still prints and we warn to
+// stderr rather than dying, so `ndf version` stays a reliable "what am I
+// running?" command even against a corrupt project. All formatting lives in the
+// pure versionOutput/versionLines helpers; cmdVersion only does the I/O.
+func cmdVersion(args []string) {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			printHelpVersion()
+			return
+		}
+	}
+	m, err := loadMarker()
+	stdout, stderrWarn := versionOutput(CLIVersion, m, err)
+	for _, line := range stdout {
+		fmt.Println(line)
+	}
+	if stderrWarn != "" {
+		warn("%s", stderrWarn)
+	}
+}
+
+// versionOutput computes the `ndf version` output from the CLI version and the
+// result of loading the project marker. Pure — no I/O — so both the happy path
+// and the corrupt-marker degradation are unit-testable. Returns the stdout
+// lines plus, when the marker could not be read, a non-empty stderr warning.
+//
+// On a load error it still returns the CLI line — via versionLines(.., nil), so
+// line 1 has a single source of truth — because `ndf version` must never
+// hard-fail just because a project marker is corrupt.
+func versionOutput(cliVersion string, m *Marker, loadErr error) (stdout []string, stderrWarn string) {
+	if loadErr != nil {
+		return versionLines(cliVersion, nil),
+			fmt.Sprintf("could not read project marker for the framework version: %v", loadErr)
+	}
+	return versionLines(cliVersion, m), ""
+}
+
+// versionLines renders `ndf version` output as a slice of stdout lines, given
+// the CLI version and the project marker (nil when not in an NDF project).
+// Pure — no I/O — so the format is unit-testable without spawning a process.
+//
+// Line 1 is always `ndf v<cliVersion>` (kept byte-stable for consumers that
+// read the CLI version). When a marker is present, line 2 reports the framework
+// version, with a `(pinned: v<X.Y.Z>)` suffix when the project pins a version.
+func versionLines(cliVersion string, m *Marker) []string {
+	lines := []string{"ndf v" + cliVersion}
+	if m == nil {
+		return lines
+	}
+	fw := "(unknown)"
+	if m.Version != "" {
+		fw = "v" + m.Version
+	}
+	line := "framework " + fw
+	if m.PinnedVersion != nil && *m.PinnedVersion != "" {
+		line += " (pinned: v" + *m.PinnedVersion + ")"
+	}
+	return append(lines, line)
+}

@@ -1,5 +1,34 @@
 # Changelog
 
+## v2.7.0 — 2026-07-14
+
+**`ndf version` now reports the installed framework version too.** Run inside an NDF project, `ndf version` prints the framework version on a second line — the number you pin and update — not just the CLI binary version.
+
+### What's changed
+
+- **`ndf version` prints a framework line when in a project.** In a directory with an NDF install (cwd or `$CLAUDE_PROJECT_DIR`), the output is now two lines:
+
+  ```
+  ndf v2.7.0
+  framework v4.15.0
+  ```
+
+  A pinned project shows `framework v4.15.0 (pinned: v4.15.0)`. Outside an NDF project, only the CLI line prints, exactly as before.
+- **The CLI-version line is unchanged.** The first line stays `ndf v<version>`, so anything that reads the CLI version from `ndf version` keeps working. For a scripted read of the framework version, use `ndf config get version` (the machine-readable value) rather than parsing `ndf version`.
+- **A corrupt project marker no longer breaks `ndf version`.** If `install.json` can't be read, `ndf version` still prints the CLI version and exits 0, with a warning on stderr — it never fails outright.
+- **`ndf version --help` now prints help** instead of ignoring the flag and printing the version, matching every other subcommand. `ndf --version` / `ndf -v` still print the version.
+
+### Also fixed (same consistency sweep)
+
+- **`ndf config show --help` now prints help** instead of running the command and ignoring the flag — bringing it in line with `ndf config set --help` and `ndf config get --help`.
+- **`ndf config get` help now describes exit codes accurately.** A malformed or absent project marker makes `ndf config get <key>` print an empty value and exit **0** (not exit 2) — by design. To tell "the value is empty" apart from "there's no project, or the marker is corrupt", run `ndf is-project` (which exits 2 on a corrupt marker). The previous help text wrongly implied a malformed marker exits 2.
+
+### Compatibility
+
+- **No manifest schema or format change. No `min_cli_version` bump.** Framework files are untouched — this is a CLI-only release. Older CLIs simply keep printing the CLI line only. No behavior change to `ndf config get`/`ndf config show` beyond the new `--help` handling — only their documentation was corrected.
+
+---
+
 ## v2.6.0 — 2026-06-19
 
 **Defense-in-depth for client-customized framework files.** A new optional manifest field, `user_customizable: true`, marks files the framework scaffolds once but you own thereafter — currently the pre-commit test hook (`.claude/hooks/pre-commit-tests.sh`), the placeholder you replace with your project's real test command. `ndf update` now guarantees it will never silently overwrite such a file.

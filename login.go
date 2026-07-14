@@ -89,6 +89,12 @@ func cmdConfig(args []string) {
 	}
 	switch sub {
 	case "show":
+		for _, a := range args[1:] {
+			if a == "-h" || a == "--help" {
+				printHelpConfigShow()
+				return
+			}
+		}
 		cmdConfigShow()
 	case "set":
 		cmdConfigSet(args[1:])
@@ -147,9 +153,14 @@ func cmdConfigSet(args []string) {
 //
 // Exit codes:
 //
-//	0 — key resolved (value printed to stdout, possibly empty)
+//	0 — key resolved (value printed to stdout, possibly empty). A malformed or
+//	    absent marker ALSO exits 0 with an empty value — by design: parse-failure
+//	    detection is routed through `ndf is-project` (exit 2), not here (see the
+//	    silent-fallback note in resolveConfigKey). So exit 0 + empty means
+//	    "no value" OR "no/corrupt marker"; callers needing to tell those apart
+//	    run `ndf is-project` first.
 //	1 — unused for now (reserved; cmdIsProject uses it for absence)
-//	2 — internal error (malformed marker, or unknown key)
+//	2 — unknown key, or a bad flag to `config get` (NOT a malformed marker)
 //
 // --source flag: prints the resolution source ("marker" or "legacy-config")
 // to stderr before exit. Useful for callers that want to know whether the
