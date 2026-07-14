@@ -217,9 +217,18 @@ func cmdConfigShow() {
 	}
 	fmt.Println()
 
-	m, _ := loadMarker()
+	// Show the resolved marker path honestly. config show is a READ command, so
+	// it honors $CLAUDE_PROJECT_DIR (via markerPath / loadMarker); the location
+	// it prints must reflect where it actually looked, not a bare "./… in cwd"
+	// that misleads when $CLAUDE_PROJECT_DIR points elsewhere. loadMarkerWithSource
+	// tells us whether the marker was found at the new or the pre-v2.5.0 path.
+	m, src, _ := loadMarkerWithSource()
 	if m != nil {
-		fmt.Println("Per-project marker (./" + projectMarker + "):")
+		markerLoc := markerPath()
+		if src == "old" {
+			markerLoc = oldMarkerPath()
+		}
+		fmt.Println("Per-project marker (" + markerLoc + "):")
 		fmt.Println("  version:         " + valueOr(m.Version, "(unknown)"))
 		if m.PinnedVersion == nil {
 			fmt.Println("  pinned_version:  null")
@@ -230,7 +239,7 @@ func cmdConfigShow() {
 			fmt.Println("  fieldnotes_repo: " + m.FieldnotesRepo)
 		}
 	} else {
-		fmt.Println("(not currently in an NDF project — no " + projectMarker + " in cwd)")
+		fmt.Println("(not currently in an NDF project — no marker at " + markerPath() + ")")
 	}
 
 	fmt.Println()

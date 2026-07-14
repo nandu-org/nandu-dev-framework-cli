@@ -231,10 +231,53 @@ import "fmt"
 // change; no `min_cli_version` bump (older CLIs simply keep printing the CLI
 // line only). Minor bump (2.6.0 → 2.7.0): new capability on an existing command.
 //
+// v2.8.0 — init/update anchor to cwd; fixes the framework-file path split-brain.
+// `ndf init` and `ndf update` now resolve the project entirely from the current
+// working directory and no longer follow $CLAUDE_PROJECT_DIR (implemented as a
+// one-line anchorProjectToCwd() that clears the override in-process at command
+// entry). `ndf config set` is deliberately NOT changed — it writes no framework
+// files (only the marker, read+written through the same override-aware resolver),
+// so it has no split-brain and stays consistent with the read side.
+//
+// The bug: the marker read/write, sentinels, and git operations honored
+// $CLAUDE_PROJECT_DIR, but the framework-file operations (fetch/stat/remove/diff/
+// backup, plus init's CLAUDE.project.md write) used bare cwd-relative paths. When
+// $CLAUDE_PROJECT_DIR pointed at a real project root that differed from cwd (a
+// subfolder run under Claude Code), `ndf update` located the marker in one
+// directory while writing framework files into another — a split-brain that
+// records checksums the files don't match. Latent (the normal path is a plain
+// terminal from the project root, where $CLAUDE_PROJECT_DIR is unset), but a real
+// correctness hazard in the safety-critical update file loop.
+//
+// The fix — cwd-only for writes, not chdir-to-override. The read subcommands
+// (is-project, marker-path, config get, config show, version) still honor
+// $CLAUDE_PROJECT_DIR because slash commands and hooks invoke them from an
+// arbitrary cwd and need the override to find the project. The write commands are
+// developer-run from the project they intend to change, so anchoring everything
+// to cwd is both simpler and matches the mental model "operate on the project I'm
+// standing in." A write command run from outside a project now simply finds no
+// marker and refuses ("not an ndf project"), instead of acting on one directory
+// while writing into another. Rejected alternative: chdir into $CLAUDE_PROJECT_DIR
+// (would make writes work from any subfolder, but re-introduces a "which project
+// did you mean?" ambiguity when cwd sits in a different project, needing a guard);
+// cwd-only has no such ambiguity because it never consults the override.
+//
+// Also: `ndf config show` now prints the marker's resolved absolute path (honoring
+// $CLAUDE_PROJECT_DIR, since it's a read command) instead of a misleading
+// "./…"/"in cwd" that implied the current directory even when the override pointed
+// elsewhere. Golden fixtures + verify-show.sh updated to normalize the volatile
+// project path.
+//
+// No framework version bump — framework files are untouched. No manifest-format
+// change; no `min_cli_version` bump (older CLIs keep their prior resolution). Minor
+// bump (2.7.0 → 2.8.0): it changes the project-resolution behavior of the two
+// write commands that place framework files (init/update), so it's surfaced as
+// minor even though it's corrective.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.7.0"
+var CLIVersion = "2.8.0"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"

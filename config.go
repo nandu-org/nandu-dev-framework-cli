@@ -180,6 +180,33 @@ func resolveProjectPath(rel string) string {
 	return abs
 }
 
+// anchorProjectToCwd makes ndf init / update resolve the project entirely from
+// the current working directory, by clearing the $CLAUDE_PROJECT_DIR override for
+// the rest of this process.
+//
+// Why only init/update: these are the commands that write FRAMEWORK FILES
+// (fetch/stat/remove/diff/backup, plus init's CLAUDE.project.md) relative to cwd,
+// while the marker/sentinels/git resolved via the override — the split-brain
+// where the marker records one directory and the files land in another. Clearing
+// the override anchors all of it to cwd, so the two can't diverge. (`ndf config
+// set` writes no framework files — it only reads and writes the marker, both
+// through the same override-aware resolver, so it is already self-consistent and
+// is deliberately left honoring $CLAUDE_PROJECT_DIR.)
+//
+// Why writes differ from reads: the read subcommands (is-project, marker-path,
+// config get, config show, version) honor $CLAUDE_PROJECT_DIR because slash
+// commands and hooks invoke them from whatever cwd the Bash tool happens to be in
+// — they need the override to locate the project. init/update are developer-run
+// from the project they intend to change, so after this call a run from outside a
+// project simply finds no marker and refuses ("not an ndf project"), rather than
+// acting on one directory while writing into another.
+//
+// Cleared in-process only — each `ndf` invocation is its own process, so this
+// never affects a separately-invoked read command.
+func anchorProjectToCwd() {
+	_ = os.Unsetenv("CLAUDE_PROJECT_DIR")
+}
+
 // resolveConfigKey returns (value, source, exists) for a single config key.
 // Sources: "marker" or "legacy-config". Exists distinguishes "key is in the
 // closed set" (exists=true, possibly with empty value) from "unknown key"

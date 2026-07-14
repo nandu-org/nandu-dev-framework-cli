@@ -46,6 +46,12 @@ func cmdUpdate(args []string) {
 		die("--version and --latest are mutually exclusive.")
 	}
 
+	// Write command: operate on the project in the current directory. See
+	// anchorProjectToCwd — this keeps the marker, framework files, sentinels,
+	// and git all resolving to cwd, so `ndf update` can never find the project
+	// in one place and write files into another.
+	anchorProjectToCwd()
+
 	// Friendly upfront message if no PAT — saves the user from a generic
 	// "401 Bad credentials" later in the flow.
 	if resolveToken() == "" {

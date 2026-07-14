@@ -62,6 +62,13 @@ func cmdInit(args []string) {
 		}
 	}
 
+	// Write command: scaffold into the current directory. See anchorProjectToCwd
+	// — the existence check, the framework files, and the marker all resolve to
+	// cwd, so init creates (and refuses on) exactly the project you're standing
+	// in, never one directory named by $CLAUDE_PROJECT_DIR while writing into
+	// another.
+	anchorProjectToCwd()
+
 	// Strict: refuse on existing project. Direct user to the right command.
 	// Dual-path check: a project may have its marker at either the
 	// v2.5.0+ location (.ndf/cli/install.json) or the pre-v2.5.0

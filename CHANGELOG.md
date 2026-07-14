@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.8.0 — 2026-07-14
+
+**`ndf init` and `ndf update` now operate on the project in your current directory.** They resolve the project marker, framework files, and git actions all from the directory you run them in, and no longer follow `$CLAUDE_PROJECT_DIR`. This fixes a latent bug where, if `$CLAUDE_PROJECT_DIR` pointed at a project root different from your current directory (e.g. running from a subfolder under an editor integration), `ndf update` could record the update against one directory while writing the framework files into another.
+
+### What's changed
+
+- **`ndf init` / `ndf update` are anchored to the current directory.** Run them from the project root. If you run them somewhere that isn't an ndf project, they refuse with "not an ndf project" instead of acting on a different directory. In the common case — a plain terminal at the project root — behavior is unchanged.
+- **The read commands are unchanged.** `ndf is-project`, `ndf marker-path`, `ndf config get`, `ndf config show`, and `ndf version` still honor `$CLAUDE_PROJECT_DIR` (editor integrations and hooks rely on that to locate the project from any directory). `ndf config set` also still honors it — it only writes the marker, so it was never affected by the bug.
+- **`ndf config show` now prints the marker's real resolved path** instead of a `./…`/"in cwd" label that could be misleading when `$CLAUDE_PROJECT_DIR` pointed elsewhere.
+
+### Compatibility
+
+- **No manifest schema or format change. No `min_cli_version` bump.** Framework files are untouched — this is a CLI-only release. The only behavior change is that `ndf init`/`ndf update` no longer follow `$CLAUDE_PROJECT_DIR`; run them from the project root (the normal case is unaffected).
+
+---
+
 ## v2.7.0 — 2026-07-14
 
 **`ndf version` now reports the installed framework version too.** Run inside an NDF project, `ndf version` prints the framework version on a second line — the number you pin and update — not just the CLI binary version.

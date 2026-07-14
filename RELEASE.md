@@ -45,7 +45,7 @@ Before tagging:
    ```
    This catches regressions in config-file reads, manifest parsing, and the update flow. Skipping this check is how the v2.0.0 macOS config-path bug got out the door — `version` and `help` don't load config, so they don't surface that class of bug.
 6. **Read the CHANGELOG draft once cold.** No internal commentary, no project-specific names, no rationale paragraphs. Sanitized factual notes only.
-7. **Golden-file check for `ndf config show`.** Run `bash scripts/verify-show.sh` from the CLI repo root. All 4 fixtures must PASS. Catches accidental drift in `cmdConfigShow`'s rendering — clients have allow-list entries for `Bash(ndf config show:*)` and external tools parse this output by line; any rendering change is potentially breaking.
+7. **Golden-file check for `ndf config show`.** Run `bash scripts/verify-show.sh` from the CLI repo root. All 5 fixtures must PASS. Catches accidental drift in `cmdConfigShow`'s rendering — clients have allow-list entries for `Bash(ndf config show:*)` and external tools parse this output by line; any rendering change is potentially breaking.
 8. **Dual-path check.** Run `bash scripts/verify-dual-path.sh` from the CLI repo root. All 5 fixtures must PASS. Exercises the v2.5.0+ catch-up read/write contract against fixtures that represent pre-relocation on-disk layouts.
 
 If any check fails, fix it before tagging.
@@ -234,7 +234,7 @@ The release workflow will be amended to add signing steps inside the matrix per 
 ```
 [ ] Pre-flight: tests pass, vet clean, working tree clean
 [ ] Local darwin build: go build, ndf version, ndf help, ndf update on a real project
-[ ] Golden-file check: bash scripts/verify-show.sh — all 4 fixtures PASS
+[ ] Golden-file check: bash scripts/verify-show.sh — all 5 fixtures PASS
 [ ] Dual-path check:   bash scripts/verify-dual-path.sh — all 5 fixtures PASS
 [ ] Bump version.go to v<next-version>
 [ ] CHANGELOG entry written, sanitized, dated
