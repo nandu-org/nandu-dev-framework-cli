@@ -33,8 +33,30 @@ type ManifestFile struct {
 	// UserCustomizable marks a file the framework scaffolds once but the
 	// client owns thereafter (e.g. the pre-commit test hook). `update` never
 	// silent-replaces these — see handleUserCustomizable in update.go.
+	//
 	// Optional field; older CLIs that predate it ignore it (JSON tolerates
 	// unknown keys), so adding it does NOT force a min_cli_version bump.
+	//
+	// CORRECTED (framework v4.16.0): the sentence above is true of ADDING the
+	// field and false as a general rule, and reading it as general produced a
+	// real bug. It was written for framework v4.7.3, which flagged
+	// pre-commit-tests.sh WITHOUT changing its content: installedSha ==
+	// f.Checksum short-circuits in cmdUpdate before handleUpdate is reached, so
+	// an old CLI skips the file and the ignored flag costs nothing. Framework
+	// v4.16.0 CHANGED the content of a flagged file. That destroys the
+	// short-circuit, routes the file into handleUpdate, and an old CLI — having
+	// ignored the flag — treats it as an ordinary tracked file. The premise
+	// stopped holding; the conclusion had been carried forward anyway, and
+	// v4.16.0 shipped with min_cli_version 2.5.0 until a review caught it.
+	//
+	// The rule this yields: min_cli_version is not only about MANIFEST FORMAT.
+	// It is about any guarantee the manifest makes that only the CLI can keep.
+	// An older CLI does not error on this flag — it IGNORES it, which is the
+	// most dangerous failure mode available: the manifest promises, the CLI
+	// silently declines to deliver, and nothing anywhere reports it. When a
+	// release's correctness depends on a CLI behaviour, the floor is that
+	// behaviour's version — and RE-DERIVE the floor's argument every time the
+	// file it was scoped to changes.
 	UserCustomizable bool `json:"user_customizable,omitempty"`
 }
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.8.1 — 2026-07-16
+
+**Coworkers get the right instructions when framework v4.16.0's migration lands.** `ndf update` now stages a migration-specific team-handoff message for `v4.15-to-v4.16-settings-split`, the way it already does for the v3→v4, v4.0→v4.2 and v4.3→v4.4 migrations.
+
+### Fixed
+
+- **The team handoff for framework v4.16.0 said `/compact`. It needs to say `/clear`.** v4.16.0 moves the hooks out of `.claude/settings.json` into their own files, and Claude Code reads hooks at session start — `/compact` does not re-read them. Without a handoff entry for that migration, coworkers got the standard message ("drift fixes", `/compact`) and kept running the pre-split hooks until they happened to restart their session. The new message says `/clear`, explains that `settings.json` is now theirs, warns that the gates now fire in git worktrees where they previously did not, and tells anyone who had extended the plan-check's source directories to set `NDF_SOURCE_ROOTS` in `.claude/hooks/hooks.config.sh`.
+- **Documented when `min_cli_version` has to move.** The comments on the `user_customizable` manifest field said adding the field never forces a `min_cli_version` bump. That is true of *adding* it and does not generalise: the reasoning holds only while a flagged file's content is unchanged. Corrected in place, with the general rule — a version floor tracks any guarantee the manifest makes that only the CLI can keep, not just the manifest's format. The v2.6.0 compatibility note is annotated to match. No behaviour change.
+
+### Compatibility
+
+- **No manifest schema or format change. No `min_cli_version` bump.** Framework files are untouched — this is a CLI-only release. Patch bump 2.8.0 → 2.8.1: a handoff dispatcher entry is data for an existing capability, not a new one (same shape as v2.3.2).
+
+---
+
 ## v2.8.0 — 2026-07-14
 
 **`ndf init` and `ndf update` now operate on the project in your current directory.** They resolve the project marker, framework files, and git actions all from the directory you run them in, and no longer follow `$CLAUDE_PROJECT_DIR`. This fixes a latent bug where, if `$CLAUDE_PROJECT_DIR` pointed at a project root different from your current directory (e.g. running from a subfolder under an editor integration), `ndf update` could record the update against one directory while writing the framework files into another.
@@ -57,6 +72,8 @@
 ### Compatibility
 
 - **The new `user_customizable` manifest field is optional. No `min_cli_version` bump.** Older CLIs ignore the field (JSON tolerates unknown keys) and continue to skip the unchanged placeholder via the existing "framework hasn't changed it" path. Surfaces with framework v4.7.3, which flags `pre-commit-tests.sh`.
+
+  > **Note added 2026-07-16 (framework v4.16.0).** The note above was correct for v4.7.3 and does not generalise — "the **unchanged** placeholder" is the condition it rests on. It holds only while a flagged file's content stays the same, because `installed_sha == manifest_sha` short-circuits before the update logic is reached. Framework v4.16.0 changes the content of both flagged files, so that short-circuit no longer applies and a CLI older than v2.6.0 — which ignores the flag — would treat them as ordinary tracked files. **Framework v4.16.0 therefore requires CLI v2.6.0 or newer.** If you are on an older CLI, `ndf update` will tell you; run `ndf self-update`.
 
 ---
 

@@ -79,9 +79,15 @@ func offerCommitAndPush(targetVersion string, changes []change, migrationCount i
 // migrationHandoffText returns the migration-specific team-handoff text
 // the CLI writes to .ndf-pending-handoff on the gate-fired run, for the
 // migrator to paste into team chat after /ndf-migrate completes and they
-// re-run `ndf update`. Today only v3-to-v4-feature-scoped carries a
-// custom message; other migrations return empty and rely on the standard
-// printTeamHandoff output.
+// re-run `ndf update`. Migrations without a case return empty and rely on
+// the standard printTeamHandoff output.
+//
+// A missing case is silent and easy to miss: composeAndWritePendingHandoff
+// only writes the marker when at least one pending migration returns
+// non-empty, so a migration with no case here produces no pending-handoff
+// file at all, and the migrator pastes the standard "drift fixes" message.
+// Adding the case is the whole content of a release — see v2.3.2, v2.5.0
+// and v2.8.1. When a framework release ships a migration, check this switch.
 //
 // Why a per-migration message: the v3→v4 reshape moves planning artifacts
 // from docs/plan/ to .ndf/, which strands any developer who happens to be
@@ -103,6 +109,8 @@ func migrationHandoffText(migrationName string) string {
 		return v40to42TeamHandoffText
 	case "v4.3-to-v4.4-cli-state-relocation":
 		return v43to44TeamHandoffText
+	case "v4.15-to-v4.16-settings-split":
+		return v415to416TeamHandoffText
 	}
 	return ""
 }
@@ -249,3 +257,46 @@ func printTeamHandoff(fromV, toV string, changes []change, migrationCount int) {
 	rawOut("")
 	rawOut("====================")
 }
+
+// v415to416TeamHandoffText covers framework v4.16.0's settings.json split.
+//
+// The one thing this text exists to say is `/clear`, not `/compact`. The
+// standard handoff's closing advice is "/compact after merging", which is right
+// for every release that only changes prompt text — and wrong for this one:
+// v4.16.0 moves the hook logic out of settings.json into .claude/hooks/*.sh, and
+// Claude Code reads hooks at session START. /compact does not re-read them, so a
+// coworker who follows the standard advice keeps running the pre-split hooks
+// until they happen to restart.
+//
+// Without a case here, composeAndWritePendingHandoff writes no pending-handoff
+// at all and coworkers get the standard message. Same shape as the v2.3.2 and
+// v2.5.0 dispatcher-case releases.
+const v415to416TeamHandoffText = `====================
+TEAM HANDOFF — paste this in your team chat
+====================
+
+The framework's hooks moved out of ` + "`.claude/settings.json`" + ` into their own
+files under ` + "`.claude/hooks/`" + `. ` + "`settings.json`" + ` now holds your permissions plus
+one line registering each hook, and it is yours from here on — the framework
+will not overwrite it again. Hook fixes now reach you on their own.
+
+After merging: ` + "`/clear`" + ` your Claude Code session — **not** ` + "`/compact`" + `.
+Hooks are read at session start, and ` + "`/compact`" + ` does not re-read them, so
+` + "`/compact`" + ` leaves you running the old hooks.
+
+**Expect gates you were not seeing before.** Work in a git worktree was running
+unguarded: the commit gate ran your *main* checkout's tests rather than the
+worktree's, and the branch/task-file and planning-mode gates did not fire there
+at all. All three now resolve the worktree you are actually in. A commit from a
+worktree runs that worktree's tests and can block; source writes there need a
+feature branch and a matching task file.
+
+**If you had extended the plan-check's source directories**, that setting does
+not carry over — it used to live inside the hook's own code, which the framework
+now owns and replaces. The migration tells the migrator what it was. Set it in
+` + "`.claude/hooks/hooks.config.sh`" + ` as ` + "`NDF_SOURCE_ROOTS='src|tests|…'`" + `.
+Until then, plan-check watches the framework's defaults instead of your
+directories.
+
+====================
+`

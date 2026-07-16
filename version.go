@@ -199,6 +199,17 @@ import "fmt"
 // unchanged placeholder via the installed==manifest path, so no
 // `min_cli_version` bump.
 //
+// [Corrected at framework v4.16.0 — the reasoning above is preserved as the
+// claim of record and it is SCOPED, not general. "Continue to skip the
+// UNCHANGED placeholder" is the whole load-bearing word: it holds only while a
+// flagged file's content does not change. Framework v4.16.0 changed the content
+// of both flagged files, which destroys the installed==manifest short-circuit
+// and routes them into handleUpdate on a CLI that ignores the flag. v4.16.0's
+// floor is therefore 2.6.0 — the version that implements UserCustomizable — and
+// the general rule is: min_cli_version tracks any guarantee the manifest makes
+// that only the CLI can keep, not just manifest format. See manifest.go's
+// UserCustomizable field for the full derivation.]
+//
 // v2.7.0 — `ndf version` now reports the installed framework version too. The
 // prior command printed only the CLI binary version; a user standing in a
 // folder with an NDF install reasonably expects to also see which framework
@@ -274,10 +285,41 @@ import "fmt"
 // write commands that place framework files (init/update), so it's surfaced as
 // minor even though it's corrective.
 //
+// v2.8.1 — paired with framework v4.16.0. Adds the team-handoff dispatcher case
+// for the `v4.15-to-v4.16-settings-split` migration. Same shape and same reason
+// as v2.3.2's case for v4.0-to-v4.2: without an entry, migrationHandoffText
+// returns "", composeAndWritePendingHandoff writes no pending-handoff marker at
+// all, and the migrator pastes the STANDARD message into team chat.
+//
+// Why that mattered enough to cut a release for it: the standard message's
+// closing advice is "/compact after merging". Framework v4.16.0 moves the hook
+// logic out of settings.json into .claude/hooks/*.sh, and Claude Code reads
+// hooks at session START — /compact does not re-read them. So every coworker
+// following the standard handoff would keep running the pre-split hooks until
+// they happened to restart. The new text says /clear, and covers the two other
+// things a coworker needs: the gates now fire in git worktrees (where they
+// previously did not fire at all), and a project that had extended plan-check's
+// source roots must re-set them in hooks.config.sh.
+//
+// The message is ONE-SHOT: it is generated at migration time, so this CLI has to
+// be in a client's hands BEFORE they run the v4.16.0 update. There is no second
+// migration to re-message on.
+//
+// Also corrects the `user_customizable` / `min_cli_version` comments here and on
+// manifest.go's field: they said adding the field never forces a floor bump,
+// which is true of ADDING it and false as a general rule — the reasoning was
+// scoped to a flagged file whose content does not change, and framework v4.16.0
+// changed both. Comment-only; no behavior change.
+//
+// Patch bump (2.8.0 → 2.8.1): a dispatcher entry is data for a capability that
+// already exists, not a new one, and the rest is documentation. Precedent:
+// v2.3.2, which was the same change for a different migration. No framework
+// version bump; no manifest-format change; no `min_cli_version` bump.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.8.0"
+var CLIVersion = "2.8.1"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"
