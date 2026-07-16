@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.8.2 — 2026-07-16
+
+**A brand-new project can now complete its first `ndf update`.** Until this release it could not: `ndf init` scaffolded the project but recorded nothing about which structural migrations applied to it, so the first `ndf update` reported every migration in the framework as pending on a project that had never had anything to migrate — and `/ndf-migrate` then stopped on the first one, because it looks for planning files a new project has not created yet. Nothing wrote the completion marker, so the same thing happened on every later `ndf update`. If you have an existing project, this never affected you; your migration history is already on disk.
+
+### Fixed
+
+- **`ndf init` now records the framework's migrations as already satisfied.** A project created by `ndf init` is in the installed version's shape from the start, so every migration up to that version is complete by definition — there was never anything for them to do. `ndf init` now writes that into `.ndf/cli/sentinels/` instead of leaving it empty. The migration gate still fires normally for any migration a project genuinely needs: if you are an existing project catching up, nothing about your update changes.
+- **`ndf init --help` printed a corrupted Windows config path.** It rendered `%!A(MISSING)PPDATA%!\(MISSING)nandu\config.json` instead of `%APPDATA%\nandu\config.json`. Text only — the CLI always read and wrote the correct location.
+
+### Removed
+
+- **`ndf init --version=<x.y.z>` is gone. `ndf init` always installs the latest framework version.** To start a project on an older version, init first and then run `ndf update --version=<x.y.z>`, which pins the project to that version and moves it there in one step — the same thing the flag did, via the command that already documents it. `ndf update --version=` and `ndf update --latest` are unchanged. A script still passing `--version=` to `ndf init` will now stop with `unknown init flag`.
+
+### Compatibility
+
+- **No manifest schema or format change. No `min_cli_version` bump.** Framework files are untouched — this is a CLI-only release. Existing projects are unaffected: the fix changes only what `ndf init` records when it creates a project. Patch bump 2.8.1 → 2.8.2 — nothing you can do today becomes impossible.
+
+---
+
 ## v2.8.1 — 2026-07-16
 
 **Coworkers get the right instructions when framework v4.16.0's migration lands.** `ndf update` now stages a migration-specific team-handoff message for `v4.15-to-v4.16-settings-split`, the way it already does for the v3→v4, v4.0→v4.2 and v4.3→v4.4 migrations.

@@ -3,9 +3,10 @@
 // Subcommands:
 //
 //	ndf init        [--token=<framework_pat>] [--fieldnotes-token=<fieldnotes_pat>]
-//	                [--fieldnotes-repo=<owner/repo>] [--version=<x.y.z>]
-//	    Scaffold a NEW NDF project. Refuses on an existing ndf project — use
-//	    `ndf login` to set tokens for an existing project.
+//	                [--fieldnotes-repo=<owner/repo>]
+//	    Scaffold a NEW NDF project at the latest framework version. Refuses on an
+//	    existing ndf project — use `ndf login` to set tokens for an existing
+//	    project. To start on an older version, init then `ndf update --version=`.
 //
 //	ndf login       [--token=<framework_pat>] [--fieldnotes-token=<fieldnotes_pat>]
 //	    Set per-developer credentials. Interactive by default (hidden input);

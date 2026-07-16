@@ -18,10 +18,12 @@ Flags:
                                        If omitted, ndf init prompts for it interactively
                                        (TTY only); in CI, the warning is emitted and you
                                        can set it later via ` + "`ndf config set fieldnotes-repo`" + `.
-  --version=<x.y.z>                    Pin to a specific framework version (default: latest tag)
+
+ndf init always installs the latest framework version. To start on an older one,
+init first, then ` + "`ndf update --version=<x.y.z>`" + `.
 
 Tokens (--token, --fieldnotes-token) are persisted to the per-developer
-config (~/.config/nandu/config.json on Unix, %APPDATA%\nandu\config.json on
+config (~/.config/nandu/config.json on Unix, %%APPDATA%%\nandu\config.json on
 Windows). The fieldnotes_repo is persisted to the project's .ndf/cli/install.json
 (per-project, committed) so coworkers cloning the project pick it up automatically.
 

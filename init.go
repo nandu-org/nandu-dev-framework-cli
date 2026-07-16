@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // claudeProjectStub is the project-owned CLAUDE.project.md scaffold written
@@ -32,15 +34,75 @@ const claudeProjectStub = `# <project-name>
 <MCPs your project depends on; e.g. context7 for stack documentation>
 `
 
+// seedFreshInstallSentinels records every migration registered in the manifest
+// `init` just installed as already satisfied.
+//
+// A project created by `ndf init` is in the installed version's shape by
+// construction, so every migration registered up to that version is vacuously
+// complete — there has never been anything for them to migrate. Recording that
+// is not a shortcut around the migration system; it is the truthful history of
+// a project born at this version.
+//
+// Without the record, pendingMigrationsFromManifest reports all of them pending
+// on the very first `ndf update`, /ndf-migrate runs them in manifest order, and
+// the first one reads planning artifacts (docs/plan/decisions.md) that no
+// framework version has ever shipped and a fresh project has never created. It
+// halts, so no sentinel is written, so the gate re-fires identically on every
+// subsequent update — permanently. The v4.5-to-v4.6 spec halts on the same
+// class of absent input one step further on.
+//
+// Seeding the manifest whole — never a subset — is load-bearing rather than
+// tidy. v4.3-to-v4.4-cli-state-relocation's Step 0.5 reads "any sentinel other
+// than my own at the new path" as evidence of a prior aborted run (State E →
+// halt), so a partial record leaves that migration pending and hands it
+// precisely that state. `init` always installs the latest tag, whose migration
+// set is a superset of every earlier one, so the whole-manifest record keeps it
+// out of the pending set on every later `ndf update` — including one pinned
+// backwards via `ndf update --version=`, whose migration set is a prefix of
+// what was seeded here.
+//
+// Sentinels are written only at the new path: the legacy `.ndf-migrations/`
+// directory is itself a State E signal to the same spec. Nothing anywhere reads
+// their contents — the CLI tests existence only, and no shipped spec reads a
+// .complete file — so the body is for whoever opens one by hand.
+func seedFreshInstallSentinels(m *Manifest) error {
+	dir := resolveProjectPath(migrationsSentinelDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", migrationsSentinelDir, err)
+	}
+	body := fmt.Sprintf(
+		"seeded_at: %s\nseeded_by: ndf init (CLI v%s)\nreason: fresh install at framework v%s — no pre-existing state to migrate\n",
+		time.Now().UTC().Format("2006-01-02T15:04:05Z"), CLIVersion, m.Version,
+	)
+	for _, name := range m.Migrations {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if err := os.WriteFile(migrationSentinelPath(name), []byte(body), 0o644); err != nil {
+			return fmt.Errorf("write sentinel for %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // cmdInit is the entry point for `ndf init`.
 func cmdInit(args []string) {
 	var (
-		cliFrameworkPAT  string
-		cliFieldnotesPAT string
+		cliFrameworkPAT   string
+		cliFieldnotesPAT  string
 		cliFieldnotesRepo string
-		requestedVersion string
 	)
 
+	// No --version flag: `ndf init` always installs the latest tag. Starting a
+	// project on an older framework is `ndf update --version=<x.y.z>`, which
+	// sets pinned_version and moves to it in one step — the path the README
+	// documents. A second route to the same outcome bought nothing and cost
+	// coherence: this CLI writes project state under .ndf/cli/ from birth, so
+	// initialising a framework older than v4.4.0 (the release whose relocation
+	// migration creates that layout) produced a project whose own migration set
+	// expected state where the CLI never puts it. An unrecognised --version=
+	// now falls to the unknown-flag branch below.
 	for _, a := range args {
 		switch {
 		case strings.HasPrefix(a, "--token="):
@@ -52,8 +114,6 @@ func cmdInit(args []string) {
 			if err := validateRepoSlug(cliFieldnotesRepo); err != nil {
 				die("invalid --fieldnotes-repo: %v", err)
 			}
-		case strings.HasPrefix(a, "--version="):
-			requestedVersion = strings.TrimPrefix(a, "--version=")
 		case a == "-h" || a == "--help":
 			printHelpInit()
 			return
@@ -131,7 +191,8 @@ func cmdInit(args []string) {
 		}
 	}
 
-	ref, err := resolveRef(requestedVersion)
+	// Empty version => resolveRef picks the latest semver tag.
+	ref, err := resolveRef("")
 	if err != nil {
 		die("resolve target ref: %v", err)
 	}
@@ -177,28 +238,27 @@ func cmdInit(args []string) {
 		}
 	}
 
-	// Pin if --version was passed.
-	var pinned *string
-	if requestedVersion != "" {
-		pv := manifest.Version
-		pinned = &pv
-	}
-
+	// Never pinned at init: a fresh project starts on the latest tag and
+	// tracks it. `ndf update --version=<x.y.z>` is what sets pinned_version.
 	m := &Marker{
 		Version:            manifest.Version,
-		PinnedVersion:      pinned,
+		PinnedVersion:      nil,
 		InstalledChecksums: checksums,
 		FieldnotesRepo:     cliFieldnotesRepo,
 	}
 	// Create the CLI-state directory tree (.ndf/cli/sentinels/) before
 	// writeMarker so the rename target's parent exists. writeMarker
-	// itself also MkdirAlls .ndf/cli/ as belt-and-suspenders; the
-	// explicit sentinels/ create here is the canonical one for fresh
-	// init (gives /ndf-migrate an empty sentinels/ directory to populate
-	// on first migration run).
-	sentinelsDir := resolveProjectPath(migrationsSentinelDir)
-	if err := os.MkdirAll(sentinelsDir, 0o755); err != nil {
-		die("create %s: %v", sentinelsDir, err)
+	// itself also MkdirAlls .ndf/cli/ as belt-and-suspenders.
+	//
+	// Seeding fills that directory rather than leaving it empty: this project
+	// is in v<manifest.Version> shape from birth, so every migration the
+	// manifest registers is already satisfied. Note the sentinels are
+	// deliberately NOT added to `checksums` above — they are CLI state, not
+	// framework files, and an entry in installed_checksums would make the next
+	// `ndf update`'s removed-files pass delete the sentinel and re-fire the
+	// migration gate forever.
+	if err := seedFreshInstallSentinels(manifest); err != nil {
+		die("%v", err)
 	}
 	if err := writeMarker(m); err != nil {
 		die("write marker: %v", err)
