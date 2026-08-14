@@ -40,14 +40,23 @@
 //	    --source prints the resolution source ("marker" or "legacy-config")
 //	    to stderr.
 //
+//	ndf verify [--fix]
+//	    Check installed framework files against the install record (offline).
+//	    --fix (interactive) marks drifted files for re-offer at the next
+//	    `ndf update`. Exit 0 clean / 1 drift / 2 usage-or-environment error.
+//
 //	ndf version   (aliases: --version, -v)
 //	    Print the ndf CLI version. Inside an NDF project, also print the
-//	    installed framework version on a second line. Human-facing readout;
-//	    for a scripted framework-version read use `ndf config get version`.
+//	    installed framework version — plus a drift line when the install
+//	    record shows framework-owned files differing from what was
+//	    delivered. Human-facing readout; for a scripted framework-version
+//	    read use `ndf config get version`.
 //
-// After a non-no-op update, ndf prints a team handoff message — a paste-ready
-// block summarizing version bump, changes, and what coworkers need to do
-// (git pull, merge main, /compact).
+// After a non-no-op update, ndf offers to commit and push its own changes
+// (interactive only, default no, staging scoped to what it changed), then
+// prints a team handoff message — a paste-ready block naming the branch the
+// changes are on, the version bump, the changes (and any files not
+// delivered), and what coworkers need to do (git pull, merge, /compact).
 //
 // Per-developer config:
 //
@@ -87,6 +96,8 @@ func main() {
 		cmdIsProject(args)
 	case "marker-path":
 		cmdMarkerPath(args)
+	case "verify":
+		cmdVerify(args)
 	case "version", "--version", "-v":
 		cmdVersion(args)
 	case "help", "--help", "-h":

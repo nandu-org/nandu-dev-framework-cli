@@ -123,7 +123,49 @@ Flags:
   --latest            Clear the pinned_version and update to the latest tag.
                       (Mutually exclusive with --version.)
 
-With no flags, updates to the project's pinned_version (or latest if no pin).`)
+With no flags, updates to the project's pinned_version (or latest if no pin).
+
+Without an interactive terminal, every conflict and collision prompt
+auto-answers "skip": nothing is replaced, the skipped files are listed at the
+end of the run, and re-offer marks survive — an auto-skipped file gains one
+if it had none (an automatic skip is not a decision; the marks are stored in
+the committed install record) — re-run interactively to decide them.
+
+After the file changes, if the project is a git repo with uncommitted framework
+changes, ndf OFFERS to commit and push them (staging only its own changes) —
+default is no, and without an interactive terminal it never commits or pushes:
+it prints the commands for you to run instead. Files you decline at a version
+delta stay at their previous version and re-surface on the next update; a file
+you decline at a re-offer prompt stays yours and stops being offered
+(` + "`ndf verify --fix`" + ` re-opens it). ` + "`ndf verify`" + ` shows the install state.`)
+}
+
+func printHelpVerify() {
+	rawErr(`Usage: ndf verify [--fix]
+
+Check every framework file recorded in the project's install record against
+what is actually on disk. Offline — no network. Verdicts per file:
+
+  ok            matches the last version the framework delivered (not listed)
+  customized    differs or absent, but the file is yours by design
+  unclassified  differs, but the record predates CLI v2.9.0 — run
+                ` + "`ndf update`" + ` once to refresh it, then re-run verify
+  AWAITING      marked for re-offer — by --fix, or by any file skipped
+                without a typed decision (a declined collision, an
+                unattended run's auto-skip, a failed replace); the next
+                interactive ` + "`ndf update`" + ` prompts
+  DRIFTED       differs and is framework-owned: either you edited it, or a
+                past update never delivered it
+  MISSING       no file on disk (the next ` + "`ndf update`" + ` restores it)
+
+Exit codes: 0 = clean (unclassified counts as clean), 1 = drifted/missing/
+awaiting, 2 = usage or environment error. A successful --fix exits 0, so
+` + "`ndf verify --fix && ndf update`" + ` chains as documented.
+
+  --fix        (interactive only) Mark the drifted files for re-offer: the
+               next ` + "`ndf update`" + ` shows each one as a diff and you decide
+               per file whether to take the framework's version or keep
+               yours.`)
 }
 
 func printHelpSelfUpdate() {
@@ -147,10 +189,16 @@ func printHelpVersion() {
 
 Print the ndf CLI binary version. When run inside an NDF project (cwd or
 $CLAUDE_PROJECT_DIR contains a project marker), also print the installed
-framework version on a second line:
+framework version on a second line — and, when the install record shows
+framework-owned files differing from what was delivered, a third line with
+the count:
 
   ndf v` + CLIVersion + `
   framework vX.Y.Z            (plus " (pinned: vX.Y.Z)" when the project pins a version)
+  N file(s) differ from the recorded install — run ` + "`ndf verify`" + `
+
+On a record too old to classify (pre-v2.9.0), the third line says the check
+cannot run and points at ` + "`ndf update`" + `.
 
 The first line (the CLI version) is stable regardless of project context.
 ` + "`ndf --version`" + ` and ` + "`ndf -v`" + ` are aliases.
@@ -175,6 +223,7 @@ Commands:
   config get     Print a single config value (version, pinned_version, fieldnotes_repo)
   is-project     Exit 0 if cwd (or $CLAUDE_PROJECT_DIR) is an NDF project, 1 if not
   marker-path    Print the absolute path to the project marker the CLI would consult
+  verify         Check installed framework files against the install record (offline)
   version        Print the ndf CLI version (plus the framework version when in a project)
   help           Print this help
 

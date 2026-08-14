@@ -245,6 +245,7 @@ func cmdInit(args []string) {
 		PinnedVersion:      nil,
 		InstalledChecksums: checksums,
 		FieldnotesRepo:     cliFieldnotesRepo,
+		UserCustomizable:   manifest.customizablePaths(),
 	}
 	// Create the CLI-state directory tree (.ndf/cli/sentinels/) before
 	// writeMarker so the rename target's parent exists. writeMarker

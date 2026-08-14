@@ -29,7 +29,7 @@ When in doubt: bump conservatively (more patches, fewer minors). Anything that c
 
 Before tagging:
 
-1. **All tests pass.** `go test ./...`. (Go unit tests began with the v2.6.0 `update_test.go` covering the `user_customizable` safeguard; broaden coverage as touched.)
+1. **All tests pass.** `go test ./...`. Then the new-surface checks: in a scratch copy of a real project, corrupt one `installed_checksums` entry and confirm `ndf verify` flags exactly that file (exit 1), `ndf version` shows the drift line, and `ndf verify` exits 2 outside a project. (Go unit tests began with the v2.6.0 `update_test.go` covering the `user_customizable` safeguard; broaden coverage as touched.)
 2. **`go vet ./...` clean.**
 3. **Working tree clean** on `main`. No uncommitted state.
 4. **Local build runs natively on macOS.** GitHub Actions cross-compiles, but the maintainer's Mac is the first place a darwin binary actually executes:
@@ -243,6 +243,6 @@ The release workflow will be amended to add signing steps inside the matrix per 
 [ ] Capture checksums from release
 [ ] Update Formula/ndf.rb (version + 3 sha256s), commit, push
 [ ] Update bucket/ndf.json (version + url + 1 hash), validate JSON, commit, push
-[ ] brew upgrade, ndf version (in a project → 2 lines: CLI + framework), ndf update against a real project
+[ ] brew upgrade, ndf version (in a project → 2-3 lines: CLI + framework (+ a drift hint when files differ from the install record)), ndf update against a real project
 [ ] (Internal) KB Version History entry — see ndf-maintainer skill
 ```

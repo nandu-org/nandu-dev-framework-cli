@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.9.0 — 2026-08-13
+
+**The CLI now assumes its operator may be an agent, and its install record now tells the truth.** Two defects surfaced together in the field: `ndf update` recorded every file in its install record as delivered whether or not it actually was — so a file declined at a prompt vanished from every later update's view and a project could run framework files several releases old under a current version number, with `ndf version` repeating the claim — and the post-update "commit and push?" prompt defaulted to yes, which meant an `ndf update` run without an interactive terminal (from a coding agent or CI, where prompts auto-answer their default) committed with `git add -A` and pushed to the current branch with nobody deciding. Both are fixed, and a new `ndf verify` makes the install state checkable in seconds.
+
+### Added
+
+- **`ndf verify` — offline integrity check.** Compares every file in the install record against disk: `ok`; `customized (yours)` for files you own by design; `DRIFTED` for a framework-owned file that differs (you edited it, or a past update never delivered it); `MISSING`; `awaiting decision` for files marked by `--fix` or by a skip that was not a typed decision (an unattended run's auto-skip, a declined collision, a failed replace). Exit 0 clean / 1 drift / 2 usage-or-environment error — and a successful `--fix` exits 0, so `ndf verify --fix && ndf update` chains. `--fix` (interactive only) marks each drifted file for re-offer: the next `ndf update` shows it as a diff and you decide per file. Records written by older CLIs report differing files as `unclassified` (not failures) until one `ndf update` refreshes the record.
+- **`ndf version` reports drift.** When the install record shows framework-owned files differing from what was delivered, `ndf version` adds one line — `N file(s) differ from the recorded install — run ndf verify` — so the version it reports is a checked claim, not a hopeful one.
+
+### Fixed
+
+- **The install record now records what was actually delivered.** A file you decline at a version-delta prompt keeps its previous recorded version, re-surfaces on every later update until you decide it, and is listed at the end of the run (previously it was recorded as current and never offered again). Declining at a `--fix` re-offer prompt is a final answer: the file stays yours and stops being offered until `ndf verify --fix` re-opens it. Unattended runs auto-answer "skip" everywhere and keep re-offer marks — an auto-skipped file gains one if it had none (an automatic skip is not a decision; the marks live in the committed install record).
+- **`ndf update` never commits or pushes without an explicit yes.** Without an interactive terminal it runs no state-changing git command — it prints the three commands for you to run instead. Interactively the prompt now defaults to **no**. The commit stages only the update's own changes plus `.ndf/cli/` — never `git add -A`, so unrelated work in your tree can no longer ride along in a framework-update commit.
+- **A missing framework file is restored even when no new version ships.** Previously a deleted file whose recorded version was current was invisible to `ndf update`; now it is restored, which also makes `ndf verify`'s MISSING remedy ("restored by the next update") true.
+- **The conflict prompt no longer blames you for changes you didn't make.** It said "changed both locally and upstream"; it now says the file differs from the last version the framework delivered, and names the second possibility explicitly: an earlier update may have skipped it — choose `[r]`.
+
+### Compatibility
+
+- **No manifest schema or format change. No `min_cli_version` bump. No framework release.** The install record gains `user_customizable` and `pending_reoffer` fields (written by v2.9.0 init/update/verify). Minor bump 2.8.2 → 2.9.0 for the new `verify` capability. Two behavior changes to notice: unattended `ndf update` runs no longer auto-commit — pipelines relying on that must run the printed git commands themselves — and if your project allow-lists `ndf` subcommands for Claude Code, add `Bash(ndf verify)` as an **exact match** (not `ndf verify:*`, which would also pre-authorize the record-modifying `--fix`).
+- **Mixed-CLI teams: upgrade everyone before relying on `verify`.** A teammate still on an older CLI is not just cosmetically behind: their next `ndf update` rewrites the shared install record the old way — it erases `verify --fix` marks (silently undoing that decision), records any files it skipped as delivered (disabling the re-offer for those paths until someone runs `ndf verify --fix` again), and drops the classification fields (so `ndf verify` reports `unclassified` and `ndf version` shows no drift hint until the next v2.9.0+ update). The old CLI itself prints no skip summary, so none of this is visible on their side. The install-record improvements in this release hold once the whole team is on ≥2.9.0.
+
+---
+
 ## v2.8.2 — 2026-07-16
 
 **A brand-new project can now complete its first `ndf update`.** Until this release it could not: `ndf init` scaffolded the project but recorded nothing about which structural migrations applied to it, so the first `ndf update` reported every migration in the framework as pending on a project that had never had anything to migrate — and `/ndf-migrate` then stopped on the first one, because it looks for planning files a new project has not created yet. Nothing wrote the completion marker, so the same thing happened on every later `ndf update`. If you have an existing project, this never affected you; your migration history is already on disk.

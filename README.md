@@ -121,7 +121,11 @@ ndf config show                  # prints resolved config with PATs masked
 
 When a release includes a structural migration, `ndf update` pre-delivers the migration spec and stops with an instruction to run `/ndf-migrate` in Claude Code, then re-run `ndf update`. See METHODOLOGY.md (delivered into each project) for the full flow.
 
-After a non-no-op update, `ndf update` prints a **team handoff message** — a paste-ready block summarizing the version bump, what changed, and what coworkers need to do (`git pull`, `git merge main`, `/compact`). Designed for the updater to drop into team chat. See METHODOLOGY.md's "Framework updates during active development" section for the multi-developer workflow.
+After a non-no-op update, `ndf update` offers to commit and push its own changes (staging only what it changed, plus `.ndf/cli/`) — **default no, and it never commits or pushes without an interactive terminal**: run unattended, it prints the three git commands for you to run instead. Files you decline at a version-delta prompt stay at their previous version, are listed at the end of the run, and re-surface on the next update; a file you decline at a re-offer prompt stays yours and stops being offered until `ndf verify --fix` re-opens it. Without an interactive terminal every prompt auto-answers "skip" and re-offer marks survive — an auto-skipped file gains one if it had none (an automatic skip is not a decision; the marks live in the committed install record).
+
+It then prints a **team handoff message** — a paste-ready block summarizing the version bump, what changed, and what coworkers need to do (`git pull`, `git merge main`, `/compact`). Designed for the updater to drop into team chat. See METHODOLOGY.md's "Framework updates during active development" section for the multi-developer workflow.
+
+At any time, `ndf verify` checks the installed files against the install record (offline): framework-owned files that differ — because you edited them or because a past update never delivered them — come back `DRIFTED`, your customizable files come back `customized (yours)`, and `ndf verify --fix` routes drifted files through the next update's diff prompts so you decide each one.
 
 ### Reading the project marker from external tools
 

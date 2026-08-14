@@ -204,7 +204,7 @@ import "fmt"
 // UNCHANGED placeholder" is the whole load-bearing word: it holds only while a
 // flagged file's content does not change. Framework v4.16.0 changed the content
 // of both flagged files, which destroys the installed==manifest short-circuit
-// and routes them into handleUpdate on a CLI that ignores the flag. v4.16.0's
+// and routes them into the conflict path on a CLI that ignores the flag. v4.16.0's
 // floor is therefore 2.6.0 — the version that implements UserCustomizable — and
 // the general rule is: min_cli_version tracks any guarantee the manifest makes
 // that only the CLI can keep, not just manifest format. See manifest.go's
@@ -316,10 +316,19 @@ import "fmt"
 // v2.3.2, which was the same change for a different migration. No framework
 // version bump; no manifest-format change; no `min_cli_version` bump.
 //
+// Minor bump (2.8.2 → 2.9.0): `ndf verify` is a new capability. The rest of
+// the release changes behavior without changing any format: the install
+// record becomes delivered-keyed (skips carry forward instead of being
+// recorded as current), the post-update commit/push offer requires an
+// explicit interactive yes and stages only its own changes, and `ndf
+// version` gains a drift hint. The marker's `user_customizable` field is
+// additive and CLI-internal — no manifest schema change, no
+// `min_cli_version` bump.
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.8.2"
+var CLIVersion = "2.9.0"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"
@@ -344,7 +353,17 @@ func cmdVersion(args []string) {
 		}
 	}
 	m, err := loadMarker()
-	stdout, stderrWarn := versionOutput(CLIVersion, m, err)
+	// The drift count makes `ndf version` honest: the framework version it
+	// reports is the marker's CLAIM, and a claim nothing checks can go
+	// stale (a 2026-07 field diagnosis found a project reporting a current
+	// version while running files seven releases old). -1 = unclassifiable
+	// (no marker, load error, or a pre-v2.9.0 record) → no hint printed.
+	// Never fatal, per this command's degradation rule.
+	drift := -1
+	if m != nil && err == nil {
+		drift = frameworkDriftCount(m, projectFileSha)
+	}
+	stdout, stderrWarn := versionOutput(CLIVersion, m, err, drift)
 	for _, line := range stdout {
 		fmt.Println(line)
 	}
@@ -358,15 +377,18 @@ func cmdVersion(args []string) {
 // and the corrupt-marker degradation are unit-testable. Returns the stdout
 // lines plus, when the marker could not be read, a non-empty stderr warning.
 //
-// On a load error it still returns the CLI line — via versionLines(.., nil), so
-// line 1 has a single source of truth — because `ndf version` must never
+// On a load error it still returns the CLI line — via versionLines(.., nil, -1),
+// so line 1 has a single source of truth — because `ndf version` must never
 // hard-fail just because a project marker is corrupt.
-func versionOutput(cliVersion string, m *Marker, loadErr error) (stdout []string, stderrWarn string) {
+//
+// driftCount: framework-owned recorded files whose disk content differs from
+// the install record (see frameworkDriftCount); -1 suppresses the hint.
+func versionOutput(cliVersion string, m *Marker, loadErr error, driftCount int) (stdout []string, stderrWarn string) {
 	if loadErr != nil {
-		return versionLines(cliVersion, nil),
+		return versionLines(cliVersion, nil, -1),
 			fmt.Sprintf("could not read project marker for the framework version: %v", loadErr)
 	}
-	return versionLines(cliVersion, m), ""
+	return versionLines(cliVersion, m, driftCount), ""
 }
 
 // versionLines renders `ndf version` output as a slice of stdout lines, given
@@ -376,7 +398,11 @@ func versionOutput(cliVersion string, m *Marker, loadErr error) (stdout []string
 // Line 1 is always `ndf v<cliVersion>` (kept byte-stable for consumers that
 // read the CLI version). When a marker is present, line 2 reports the framework
 // version, with a `(pinned: v<X.Y.Z>)` suffix when the project pins a version.
-func versionLines(cliVersion string, m *Marker) []string {
+// A positive driftCount adds line 3 — the framework version above is the
+// record's claim, and this line is what keeps the claim honest. driftCount
+// -1 (record predates v2.9.0; unclassifiable) adds a different line 3
+// saying the check cannot run — silence there would read as health.
+func versionLines(cliVersion string, m *Marker, driftCount int) []string {
 	lines := []string{"ndf v" + cliVersion}
 	if m == nil {
 		return lines
@@ -389,5 +415,14 @@ func versionLines(cliVersion string, m *Marker) []string {
 	if m.PinnedVersion != nil && *m.PinnedVersion != "" {
 		line += " (pinned: v" + *m.PinnedVersion + ")"
 	}
-	return append(lines, line)
+	lines = append(lines, line)
+	switch {
+	case driftCount > 0:
+		lines = append(lines, fmt.Sprintf("%d file(s) differ from the recorded install — run `ndf verify`", driftCount))
+	case driftCount < 0:
+		// The absence of a warning must not read as health when the check
+		// could not run: a pre-v2.9.0 record cannot be classified offline.
+		lines = append(lines, "install record predates CLI v2.9.0 — drift cannot be checked; run `ndf update` once, then `ndf verify`")
+	}
+	return lines
 }

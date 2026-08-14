@@ -35,6 +35,25 @@ func gitInRepoStreaming(dir string, args ...string) error {
 	return cmd.Run()
 }
 
+// gitHasUncommittedChangesIn reports whether any of the given pathspecs
+// carry unstaged, staged, or untracked changes. Scoped variant of
+// gitHasUncommittedChanges: the post-update commit offer must describe the
+// UPDATE's changes, not the developer's whole tree — a repo-wide check
+// made the offer fire (and the handoff's NOT-PUSHED banner print) on runs
+// whose own paths were byte-identical to the committed state, whenever
+// unrelated WIP sat elsewhere in the tree.
+func gitHasUncommittedChangesIn(dir string, paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	args := append([]string{"status", "--porcelain", "--"}, paths...)
+	out, err := gitInRepo(dir, args...)
+	if err != nil {
+		return false
+	}
+	return out != ""
+}
+
 // gitIsRepo returns true if dir is inside a git working tree.
 func gitIsRepo(dir string) bool {
 	_, err := gitInRepo(dir, "rev-parse", "--is-inside-work-tree")

@@ -214,6 +214,7 @@ func TestHelpTextIsNotMangledByFormatVerbs(t *testing.T) {
 		"config set":  printHelpConfigSet,
 		"update":      printHelpUpdate,
 		"self-update": printHelpSelfUpdate,
+		"verify":      printHelpVerify,
 		"version":     printHelpVersion,
 		"help":        printHelp,
 	}

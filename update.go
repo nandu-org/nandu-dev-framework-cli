@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -12,11 +13,11 @@ import (
 type changeKind string
 
 const (
-	changeNew                 changeKind = "new"
-	changeUpdate              changeKind = "update"
-	changeUpdateWithConflict  changeKind = "update-with-conflict"
-	changeRename              changeKind = "rename"
-	changeRemove              changeKind = "remove"
+	changeNew                changeKind = "new"
+	changeUpdate             changeKind = "update"
+	changeUpdateWithConflict changeKind = "update-with-conflict"
+	changeRename             changeKind = "rename"
+	changeRemove             changeKind = "remove"
 )
 
 type change struct {
@@ -163,7 +164,27 @@ func cmdUpdate(args []string) {
 	// ---- pass 1: process every file in the new manifest ----
 	var changes []change
 	var customizablePreserved []string
+	// Paths the user (or the non-TTY default) skipped at a conflict or
+	// collision prompt this run. Feeds ledgerAfterUpdate — a skipped file
+	// must NOT be recorded as delivered. skippedDisplay is the user-facing
+	// companion: one entry per DECISION (a declined rename contributes two
+	// ledger paths but one decision), driving the end-of-run summary.
+	var skipped []string
+	var skippedDisplay []string
 	installed := marker.InstalledChecksums
+	// Pending re-offer marks (verify --fix / prior declines). Cleared by
+	// omission: only paths a handler explicitly KEEPS this run survive into
+	// the rewritten marker. keepPendingMark is the policy: any delivery
+	// clears; a TYPED skip on a recorded path clears (a human answered);
+	// an unattended auto-skip keeps (a default is not a decision — the
+	// release's own incident doctrine); an entry-less net-new decline
+	// keeps regardless (the mark is its sole visibility). A path that
+	// turned user_customizable or left the manifest clears — moot.
+	pendingSet := make(map[string]struct{}, len(marker.PendingReoffer))
+	for _, p := range marker.PendingReoffer {
+		pendingSet[p] = struct{}{}
+	}
+	var pendingKept []string
 
 	for _, f := range manifest.Files {
 		// user_customizable files (e.g. the pre-commit test hook) are
@@ -177,7 +198,7 @@ func cmdUpdate(args []string) {
 			continue
 		}
 		if f.RenamedFrom != "" {
-			handleRename(ref, f, installed, &changes)
+			handleRename(ref, f, installed, &changes, &skipped, &skippedDisplay, &pendingKept)
 			continue
 		}
 		if _, hadBefore := installed[f.Path]; !hadBefore {
@@ -192,7 +213,7 @@ func cmdUpdate(args []string) {
 				// framework file wants to create — an untracked-file
 				// collision. Never silently overwrite a client's file:
 				// hand off to the diff-and-prompt path.
-				handleNetNewCollision(ref, f, &changes)
+				handleNetNewCollision(ref, f, &changes, &skipped, &skippedDisplay, &pendingKept)
 				continue
 			}
 			info("  new: %s", f.Path)
@@ -202,22 +223,49 @@ func cmdUpdate(args []string) {
 			changes = append(changes, change{Kind: changeNew, Path: f.Path})
 			continue
 		}
-		// Existing file — diff manifest vs installed.
+		// Existing file — route via the pure decision table (the branch
+		// order is load-bearing; see updateFileAction).
 		installedSha := installed[f.Path]
-		if installedSha == f.Checksum {
-			// Framework hasn't changed it; nothing to do this run.
-			continue
+		_, isPending := pendingSet[f.Path]
+		switch updateFileAction(installedSha, sha256OfFileOrEmpty(f.Path), f.Checksum, isPending) {
+		case actionNoop:
+			// Covers recorded-current-and-untouched AND the client's edit
+			// of a recorded-current file (left alone until the next version
+			// delta, per the v1.2.2 doctrine: never silently repair).
+		case actionRestore:
+			warn("  %s: file missing locally; restoring from framework.", f.Path)
+			if err := fetchFileTo(ref, f.Path, f.Path); err != nil {
+				die("fetch %s: %v", f.Path, err)
+			}
+			changes = append(changes, change{Kind: changeUpdate, Path: f.Path})
+		case actionRecordDelivered:
+			// Disk already equals the incoming version — record it, fetch
+			// nothing, prompt nothing, report no change. This is the
+			// pristine-checkout self-heal for a pulled re-offer mark.
+			info("  %s already matches the incoming version; recording it as delivered.", f.Path)
+		case actionSilentReplace:
+			info("  update: %s", f.Path)
+			if err := fetchFileTo(ref, f.Path, f.Path); err != nil {
+				die("fetch %s: %v", f.Path, err)
+			}
+			changes = append(changes, change{Kind: changeUpdate, Path: f.Path})
+		case actionConflict:
+			handleUpdateConflict(ref, f, installedSha, &changes, &skipped, &skippedDisplay, &pendingKept)
 		}
-		handleUpdate(ref, f, installedSha, &changes)
 	}
 
-	// ---- compute new_checksums from the MANIFEST (not from disk) ----
-	// CRITICAL: see marker.writeMarker() docstring. Recording disk state
-	// here would cause the v1.2.2 corruption bug to come back.
-	newChecksums := make(map[string]string, len(manifest.Files))
-	for _, f := range manifest.Files {
-		newChecksums[f.Path] = f.Checksum
-	}
+	// ---- compute new_checksums: DELIVERED entries only ----
+	// CRITICAL: see marker.writeMarker() docstring, both halves. Never disk
+	// state (v1.2.2 — silent customization revert), and never mere intent —
+	// a file skipped at a prompt keeps its previous installed checksum, so
+	// the next update still sees it as outdated and re-offers it instead of
+	// short-circuiting forever on a ledger entry for a delivery that never
+	// happened. Preserved user_customizable files join the carry list for
+	// the same reason: nothing was delivered to them this run, so their
+	// entries keep the last delivered placeholder reference rather than
+	// silently advancing to the new manifest's.
+	notDelivered := append(append([]string{}, skipped...), customizablePreserved...)
+	newChecksums := ledgerAfterUpdate(manifest.Files, installed, notDelivered)
 
 	// ---- pass 2: removed files (in old manifest, not in new, not as a
 	// rename source we already handled) ----
@@ -231,6 +279,17 @@ func cmdUpdate(args []string) {
 			continue
 		}
 		if _, err := os.Stat(oldPath); err == nil {
+			// Remove only content the framework itself delivered. A file
+			// whose on-disk hash differs from its recorded checksum is the
+			// client's content — edited by them, or preserved by them at a
+			// declined-rename prompt whose carried-forward entry keeps the
+			// path in this loop's view. Destroying it on the framework's
+			// say-so would undo a decision the client made explicitly;
+			// leave it and say so.
+			if !shouldRemoveRetiredPath(installed[oldPath], sha256OfFileOrEmpty(oldPath)) {
+				warn("%s is no longer in the framework, but your copy differs from what the framework delivered — leaving it in place. Delete it yourself if you no longer want it.", oldPath)
+				continue
+			}
 			warn("removing %s (no longer in framework)", oldPath)
 			if err := os.Remove(oldPath); err != nil {
 				warn("  could not remove %s: %v", oldPath, err)
@@ -262,12 +321,23 @@ func cmdUpdate(args []string) {
 		PinnedVersion:      newPinned,
 		InstalledChecksums: newChecksums,
 		FieldnotesRepo:     marker.FieldnotesRepo, // preserve through update
+		UserCustomizable:   manifest.customizablePaths(),
+		PendingReoffer:     dedupSorted(pendingKept),
 	}
 	if err := writeMarker(newMarker); err != nil {
 		die("write marker: %v", err)
 	}
 
-	ok("ndf update complete. Now at v%s.", manifest.Version)
+	// The completion line must not overclaim: after auto-skips, "complete"
+	// would assert a state the run knowingly did not reach. Exit code stays
+	// 0 either way — the operation itself succeeded, the undelivered state
+	// is legible here and via `ndf verify` (a deliberate contract; changing
+	// update's exit semantics would break existing pipelines).
+	if len(skippedDisplay) == 0 {
+		ok("ndf update complete. Now at v%s.", manifest.Version)
+	} else {
+		ok("ndf update finished at v%s — %d file(s) not delivered (see below).", manifest.Version, len(skippedDisplay))
+	}
 
 	if len(customizablePreserved) > 0 {
 		ok("")
@@ -277,10 +347,34 @@ func cmdUpdate(args []string) {
 		}
 	}
 
+	// Skipped files are the one outcome that must not scroll away silently:
+	// each one is a divergence from the target version that persists until
+	// someone decides it. Especially load-bearing when stdin is not a
+	// terminal (an agent or CI ran the update): every conflict prompt above
+	// auto-answered "skip", and this summary is the only trace.
+	if len(skippedDisplay) > 0 {
+		warn("")
+		if !isStdinTTY() {
+			warn("%d file(s) were skipped automatically because no interactive terminal was attached (each line says what that means):", len(skippedDisplay))
+		} else {
+			warn("%d file(s) were skipped (each line says what that means):", len(skippedDisplay))
+		}
+		for _, p := range skippedDisplay {
+			warn("  %s", p)
+		}
+		// No blanket outcome claim here — the per-line annotations carry it
+		// (a version-delta skip re-surfaces; a typed re-offer decline is
+		// final; an undecided one stays marked). The two pointers below are
+		// true in every case.
+		warn("Run `ndf verify` to see the resulting install state.")
+		if !isStdinTTY() {
+			warn("Re-run `ndf update` in an interactive terminal to decide the undecided files.")
+		}
+	}
+
 	// ---- offer commit + push BEFORE the team handoff ----
 	// The handoff tells coworkers to `git pull`; if our changes aren't
-	// pushed yet, the handoff is premature. The bash CLI added this in
-	// v1.2.1; we preserve the same prompt-default-yes behavior.
+	// pushed yet, the handoff is premature.
 	//
 	// migrationCount=0: the migration gate did NOT fire on this run. By
 	// the time we reach this line, either there were no migrations in the
@@ -290,10 +384,10 @@ func cmdUpdate(args []string) {
 	// stay forever per the maintainer skill, so it always reported a
 	// non-zero count and the handoff/commit prompts incorrectly warned
 	// about a structural migration on every update past v3.2.0.
-	offerCommitAndPush(manifest.Version, changes, 0)
+	pushed, outstanding := offerCommitAndPush(manifest.Version, changes, 0)
 
 	// ---- team handoff message ----
-	printTeamHandoff(currentVersion, manifest.Version, changes, 0)
+	printTeamHandoff(os.Stdout, currentVersion, manifest.Version, changes, 0, handoffGitContext(), pushed, outstanding, skippedDisplay)
 }
 
 // pendingMigrationsFromManifest walks manifest.Migrations and returns those
@@ -322,11 +416,19 @@ func pendingMigrationsFromManifest(m *Manifest) []string {
 //   - If the source file on disk matches its old installed checksum, do a
 //     silent rename (download under new path, remove old path).
 //   - If the client modified the source file, surface a diff and prompt.
-func handleRename(ref string, f ManifestFile, installed map[string]string, changes *[]change) {
+func handleRename(ref string, f ManifestFile, installed map[string]string, changes *[]change, skipped, skippedDisplay, pendingKept *[]string) {
 	rn := f.RenamedFrom
 	oldInstalledSha, ok := installed[rn]
 	if !ok {
 		warn("rename %s → %s: source not found in installed manifest. Treating as a new file.", rn, f.Path)
+		// Same guard as the net-new branch in pass 1: if something already
+		// occupies the target path, never blind-overwrite it — a client's
+		// own file (or a drifted file whose record `verify --fix` reset)
+		// deserves the diff prompt, not a silent replace.
+		if _, err := os.Stat(f.Path); err == nil {
+			handleNetNewCollision(ref, f, changes, skipped, skippedDisplay, pendingKept)
+			return
+		}
 		if err := fetchFileTo(ref, f.Path, f.Path); err != nil {
 			die("fetch %s: %v", f.Path, err)
 		}
@@ -347,73 +449,328 @@ func handleRename(ref string, f ManifestFile, installed map[string]string, chang
 	}
 
 	// Client modified rn — download framework version under new path, prompt.
+	// If the client authored their OWN file at the rename TARGET, capture it
+	// first: the fetch below overwrites the path, and every prompt outcome
+	// must either restore those bytes ([s]) or preserve them as a backup
+	// ([r]/[b]) — the "never silently overwrite a client's file" guarantee
+	// applies to the target side of a rename exactly as it does to net-new.
+	var priorTarget []byte
+	hadPriorTarget := false
+	if _, err := os.Stat(f.Path); err == nil {
+		var readErr error
+		priorTarget, readErr = readAll(f.Path)
+		if readErr != nil {
+			// Fail closed: fetchFileTo overwrites via temp+rename, which
+			// succeeds over a file we could not read — proceeding would
+			// let every branch act on empty bytes and announce a zero-byte
+			// "restore"/"backup" as success. Withdraw the whole rename
+			// instead (B4's shape: nothing delivered ⇒ record a skip).
+			warn("  rename %s → %s: cannot read the existing file at the target path (%v) — not touching it; rename skipped.", rn, f.Path, readErr)
+			*skipped = append(*skipped, rn, f.Path)
+			*skippedDisplay = append(*skippedDisplay, rn+" (rename not applied: target unreadable)")
+			// An involuntary skip is not a decision — keep any re-offer mark.
+			*pendingKept = append(*pendingKept, rn)
+			return
+		}
+		hadPriorTarget = true
+		warn("  rename %s → %s: a file already exists at the target path; it will be preserved unless you choose otherwise.", rn, f.Path)
+	}
 	warn("  rename %s → %s: client has modified %s; downloading framework version to %s for review.", rn, f.Path, rn, f.Path)
 	if err := fetchFileTo(ref, f.Path, f.Path); err != nil {
 		die("fetch %s: %v", f.Path, err)
 	}
-	clientBytes, _ := readAll(rn)
-	frameworkBytes, _ := readAll(f.Path)
-	rawErr("  diff (yours vs framework, on the new path):")
-	printDiff("yours: "+rn, clientBytes, "framework: "+f.Path, frameworkBytes)
+	restorePriorTarget := func() {
+		if hadPriorTarget {
+			if err := os.WriteFile(f.Path, priorTarget, 0o644); err != nil {
+				warn("    could not restore your previous file at %s: %v", f.Path, err)
+			} else {
+				info("    your previous file at %s restored.", f.Path)
+			}
+		} else {
+			_ = os.Remove(f.Path)
+		}
+	}
+	backupPriorTarget := func() {
+		if hadPriorTarget {
+			if err := os.WriteFile(f.Path+".local-backup", priorTarget, 0o644); err != nil {
+				warn("    could not back up your previous file at %s: %v", f.Path, err)
+			} else {
+				info("    your previous file at %s saved to %s.local-backup.", f.Path, f.Path)
+			}
+		}
+	}
+	if isStdinTTY() {
+		clientBytes, _ := readAll(rn)
+		frameworkBytes, _ := readAll(f.Path)
+		rawErr("  diff (yours vs framework, on the new path):")
+		printDiff("yours: "+rn, clientBytes, "framework: "+f.Path, frameworkBytes)
+	} else {
+		warn("  No terminal attached — auto-skipping the rename; re-run `ndf update` interactively to decide.")
+	}
 
 	choice := prompt(fmt.Sprintf("  [r]eplace %s's changes with framework version, [s]kip rename, or [b]ackup-and-replace? (default: s)", rn), "s")
 	switch strings.ToLower(strings.TrimSpace(choice)) {
 	case "r":
+		backupPriorTarget()
 		_ = os.Remove(rn)
 		info("    %s removed; framework content lives at %s now.", rn, f.Path)
+		*changes = append(*changes, change{Kind: changeRename, Path: rn + " → " + f.Path})
 	case "b":
 		if err := copyFile(rn, rn+".local-backup"); err == nil {
+			backupPriorTarget()
 			_ = os.Remove(rn)
 			info("    backed up %s → %s.local-backup; framework content at %s.", rn, rn, f.Path)
+			*changes = append(*changes, change{Kind: changeRename, Path: rn + " → " + f.Path})
 		} else {
-			warn("    backup failed: %v — leaving %s in place.", err, rn)
+			// Backup failed ⇒ nothing was delivered: mirror the skip path so
+			// the ledger, the summary, and the working tree all agree (the
+			// framework file placed above is withdrawn; a delivered-looking
+			// file absent from `changes` would be committed nowhere while
+			// the record claimed it).
+			warn("    backup failed: %v — leaving %s in place and withdrawing the framework version at %s.", err, rn, f.Path)
+			restorePriorTarget()
+			*skipped = append(*skipped, rn, f.Path)
+			*skippedDisplay = append(*skippedDisplay, rn+" (rename not applied: backup failed)")
+			// A failed action is not a decision — keep any re-offer mark.
+			*pendingKept = append(*pendingKept, rn)
 		}
 	default:
-		// skip — undo the framework version we just placed
-		_ = os.Remove(f.Path)
-		info("    rename skipped; %s preserved (framework version at %s removed).", rn, f.Path)
+		// skip — undo the framework version we just placed. Recording BOTH
+		// paths as skipped keeps the source's ledger entry alive (so the
+		// rename re-offers next run, diffing against the kept file) and
+		// gives the target no entry. An unattended auto-skip keeps any
+		// re-offer mark on the source (not a decision).
+		restorePriorTarget()
+		info("    rename skipped; %s preserved.", rn)
+		*skipped = append(*skipped, rn, f.Path)
+		*skippedDisplay = append(*skippedDisplay, rn+" (declined rename to "+f.Path+")")
+		if keepPendingMark(true, isStdinTTY()) {
+			*pendingKept = append(*pendingKept, rn)
+		}
 	}
 }
 
-// handleUpdate implements the "existing file with new content" branch from
-// pass 1: silent replace if client hasn't modified, otherwise diff + prompt.
-func handleUpdate(ref string, f ManifestFile, installedSha string, changes *[]change) {
-	currentSha := sha256OfFileOrEmpty(f.Path)
-	if currentSha == "" {
-		// Vanished locally — restore.
-		warn("  %s: file missing locally; restoring from framework.", f.Path)
-		if err := fetchFileTo(ref, f.Path, f.Path); err != nil {
-			die("fetch %s: %v", f.Path, err)
-		}
-		return
-	}
-	if currentSha == installedSha {
-		// Client unchanged; silent replace.
-		info("  update: %s", f.Path)
-		if err := fetchFileTo(ref, f.Path, f.Path); err != nil {
-			die("fetch %s: %v", f.Path, err)
-		}
-		*changes = append(*changes, change{Kind: changeUpdate, Path: f.Path})
-		return
-	}
+// fileAction is updateFileAction's verdict for one recorded file.
+type fileAction string
 
-	// Client AND framework both changed it — conflict prompt.
+const (
+	actionNoop            fileAction = "noop"             // recorded current, disk untouched-or-client-edited: nothing to do this run
+	actionRestore         fileAction = "restore"          // file vanished locally: re-fetch
+	actionRecordDelivered fileAction = "record-delivered" // disk already equals the incoming version: record, no fetch, no prompt
+	actionSilentReplace   fileAction = "silent-replace"   // client unchanged since last delivery: fetch + replace
+	actionConflict        fileAction = "conflict"         // genuine three-way divergence: diff + prompt
+)
+
+// updateFileAction routes a recorded, framework-owned file in pass 1. Pure —
+// the branch ORDER is load-bearing and pinned by tests:
+//
+//   - a vanished file is restored before anything else is considered;
+//   - disk already matching the incoming version beats every other branch —
+//     re-fetching identical bytes is never wanted, and this is how a
+//     pristine checkout self-heals a pulled re-offer mark with no prompt,
+//     no change entry, and no network;
+//   - a ledger that claims current (installed == manifest) is a no-op
+//     UNLESS the path carries a re-offer mark — the mark exists precisely
+//     to overrule that short-circuit (a client-edited recorded-current file
+//     stays untouched until the next version delta, per the v1.2.2
+//     doctrine: never silently repair content);
+//   - client-unchanged since last delivery → silent replace;
+//   - anything else is a real conflict → diff + prompt.
+func updateFileAction(installedSha, currentSha, manifestSha string, isPending bool) fileAction {
+	switch {
+	case currentSha == "":
+		return actionRestore
+	case currentSha == manifestSha:
+		if installedSha == manifestSha && !isPending {
+			return actionNoop
+		}
+		return actionRecordDelivered
+	case installedSha == manifestSha && !isPending:
+		return actionNoop
+	case currentSha == installedSha:
+		return actionSilentReplace
+	default:
+		return actionConflict
+	}
+}
+
+// conflictSkipOutcome renders the per-file message and the summary-line
+// suffix for a conflict skip. decided = a human typed the skip; a non-TTY
+// auto-answer and a failed [r]/[b] action (the human chose replace and the
+// delivery failed) are NOT decisions and keep the re-offer mark. The three
+// truths, per case:
+//
+//	re-offer + decided  → final: not offered again automatically
+//	re-offer + !decided → stays marked; re-offered on the next interactive run
+//	version delta       → re-surfaces on the next update (the carried entry
+//	                      differs from the manifest, so the conflict re-fires)
+//
+// Pure — unit-tested.
+func conflictSkipOutcome(reoffer, decided bool) (fileMsg, displaySuffix string) {
+	switch {
+	case reoffer && decided:
+		return "your file is preserved. It will not be offered again automatically — `ndf verify` shows it as drifted, and `ndf verify --fix` re-opens it.",
+			" (declined; not offered again — `ndf verify --fix` re-opens it)"
+	case reoffer && !decided:
+		return "your file is preserved and stays marked for re-offer.",
+			" (not decided; stays marked for re-offer)"
+	default:
+		return "your file is preserved and this will re-surface on the next update.",
+			" (skipped; re-offered on the next update)"
+	}
+}
+
+// keepPendingMark decides whether a skip outcome preserves a path's
+// re-offer mark. A TYPED skip on a recorded path is a human decision — the
+// question was answered, the mark clears (the file stays visible as
+// drifted). An UNATTENDED auto-skip is not a decision (the release's own
+// incident doctrine), so the mark survives and the promised interactive
+// re-run genuinely re-prompts. An entry-less path (declined net-new
+// collision) keeps its mark regardless: the mark is its only visibility.
+// Pure — unit-tested.
+func keepPendingMark(hadEntry, typedDecision bool) bool {
+	return !hadEntry || !typedDecision
+}
+
+// dedupSorted returns the sorted unique elements of in. Used for marker
+// list fields so rewrites are stable and idempotent.
+func dedupSorted(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	var out []string
+	for _, p := range in {
+		if _, dup := seen[p]; dup {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// shouldRemoveRetiredPath decides whether pass 2 may delete a file the
+// manifest no longer tracks: only when its on-disk content is exactly what
+// the framework last delivered. Anything else is the client's content —
+// edited by them, or kept at a declined-rename prompt — and destroying it
+// on the framework's say-so would undo an explicit client decision. Pure —
+// unit-tested in update_test.go.
+func shouldRemoveRetiredPath(recorded, actual string) bool {
+	return actual == recorded
+}
+
+// ledgerAfterUpdate computes the marker's installed_checksums after a pass-1
+// run. The rule (marker.writeMarker docstring, both halves): the ledger
+// records what the framework last DELIVERED — never disk state, never mere
+// intent. Concretely:
+//
+//   - delivered or already-current file → the manifest checksum
+//   - file skipped at a conflict prompt → its PREVIOUS installed checksum,
+//     carried forward, so the next update still sees manifest != installed
+//     and re-offers it (instead of short-circuiting forever on an entry for
+//     a delivery that never happened)
+//   - net-new file skipped at the collision prompt → no entry (stays "new"
+//     next run, so the collision prompt re-fires)
+//   - rename skipped → the SOURCE path's entry carries forward (the rename
+//     re-offers next run, diffing against the client's kept file) and the
+//     target path gets no entry
+//   - preserved user_customizable file → previous entry carries forward
+//     (nothing was delivered; the entry keeps the last delivered
+//     placeholder reference instead of silently advancing)
+//
+// notDelivered is the union of prompt-skipped paths and preserved
+// customizable paths. Pure — unit-tested in update_test.go.
+func ledgerAfterUpdate(files []ManifestFile, prev map[string]string, notDelivered []string) map[string]string {
+	inManifest := make(map[string]struct{}, len(files))
+	for _, f := range files {
+		inManifest[f.Path] = struct{}{}
+	}
+	skip := make(map[string]struct{}, len(notDelivered))
+	for _, p := range notDelivered {
+		skip[p] = struct{}{}
+	}
+	out := make(map[string]string, len(files))
+	for _, f := range files {
+		if _, wasSkipped := skip[f.Path]; wasSkipped {
+			if prevSha, had := prev[f.Path]; had {
+				out[f.Path] = prevSha
+			}
+			continue
+		}
+		out[f.Path] = f.Checksum
+	}
+	// Not-delivered paths outside the manifest's files[] are rename sources
+	// the user kept: carry their entries forward so the rename re-offers.
+	for _, p := range notDelivered {
+		if _, m := inManifest[p]; m {
+			continue
+		}
+		if prevSha, had := prev[p]; had {
+			out[p] = prevSha
+		}
+	}
+	return out
+}
+
+// handleUpdateConflict handles pass 1's actionConflict verdict: the file
+// differs from both the last delivered version and the incoming one (or
+// was marked for re-offer). Diff + prompt; a skip is appended to *skipped
+// so the ledger and the end-of-run summary record it, and the re-offer
+// mark survives per keepPendingMark (a typed skip is a decision; an
+// unattended auto-skip is not).
+func handleUpdateConflict(ref string, f ManifestFile, installedSha string, changes *[]change, skipped, skippedDisplay, pendingKept *[]string) {
 	tmp := f.Path + ".ndf-incoming"
 	if err := fetchFileTo(ref, f.Path, tmp); err != nil {
 		die("fetch %s: %v", f.Path, err)
 	}
 	defer os.Remove(tmp)
 
-	warn("  %s: changed both locally and upstream.", f.Path)
-	clientBytes, _ := readAll(f.Path)
-	frameworkBytes, _ := readAll(tmp)
-	printDiff("yours: "+f.Path, clientBytes, "framework: "+f.Path, frameworkBytes)
+	// Two arrivals look identical here except for the ledger: a genuine
+	// version delta (installed != manifest), and a re-offer of a file the
+	// framework hasn't changed (installed == manifest, forced by the mark).
+	// The wording must not claim a newer framework version that does not
+	// exist.
+	reoffer := installedSha == f.Checksum
+	if reoffer {
+		warn("  %s: differs from the version the framework last delivered here (the framework's copy is unchanged — this file was marked for re-offer).", f.Path)
+	} else {
+		warn("  %s: differs from the last version the framework delivered here, and the framework has a newer version.", f.Path)
+	}
+	if isStdinTTY() {
+		warn("  If you edited this file, review the diff. If you never edited it, an earlier update likely skipped it — choose [r].")
+		clientBytes, _ := readAll(f.Path)
+		frameworkBytes, _ := readAll(tmp)
+		printDiff("yours: "+f.Path, clientBytes, "framework: "+f.Path, frameworkBytes)
+	} else {
+		// No terminal: the prompt below auto-answers skip. Don't instruct a
+		// reader to choose at a prompt that will never appear, and don't
+		// dump a diff nobody can act on — the end-of-run summary names the
+		// file and the interactive re-run is the route (the re-offer mark
+		// survives an auto-skip, so that re-run genuinely re-prompts).
+		warn("  No terminal attached — auto-skipping. If you did not edit this file, re-run `ndf update` in an interactive terminal and choose [r].")
+	}
+
+	// decided = a human typed this skip. The failure branches pass false:
+	// the human answered REPLACE there, and a failed action is not a
+	// decision — the mark must survive so the file stays reachable.
+	skipHere := func(decided bool) {
+		fileMsg, suffix := conflictSkipOutcome(reoffer, decided)
+		info("    skipped %s; %s", f.Path, fileMsg)
+		*skipped = append(*skipped, f.Path)
+		*skippedDisplay = append(*skippedDisplay, f.Path+suffix)
+		if keepPendingMark(true, decided) {
+			*pendingKept = append(*pendingKept, f.Path)
+		}
+	}
 
 	choice := prompt("  [r]eplace with framework, [s]kip, or [b]ackup-and-replace? (default: s)", "s")
 	switch strings.ToLower(strings.TrimSpace(choice)) {
 	case "r":
 		if err := copyFile(tmp, f.Path); err != nil {
 			warn("    replace failed: %v", err)
+			skipHere(false)
 		} else {
 			info("    replaced %s.", f.Path)
 			*changes = append(*changes, change{Kind: changeUpdateWithConflict, Path: f.Path})
@@ -425,12 +782,14 @@ func handleUpdate(ref string, f ManifestFile, installedSha string, changes *[]ch
 				*changes = append(*changes, change{Kind: changeUpdateWithConflict, Path: f.Path})
 			} else {
 				warn("    replace failed after backup: %v", err)
+				skipHere(false)
 			}
 		} else {
 			warn("    backup failed: %v — not replacing.", err)
+			skipHere(false)
 		}
 	default:
-		info("    skipped %s.", f.Path)
+		skipHere(isStdinTTY())
 	}
 }
 
@@ -441,15 +800,24 @@ func handleUpdate(ref string, f ManifestFile, installedSha string, changes *[]ch
 // client's file" guarantee forbids the blind silent-create the net-new
 // branch would otherwise do, so we surface a diff and prompt instead.
 //
-// Wording note: this is deliberately NOT handleUpdate's "changed both
+// Wording note: this is deliberately NOT handleUpdateConflict's "differs from"
 // locally and upstream" message. The framework never installed anything
 // here, so there is no upstream change relative to a prior install — there
 // is simply a pre-existing untracked file sitting where the framework now
 // wants to put a brand-new file. The prompt reflects that accurately.
 //
-// Reuses handleUpdate's temp-file + printDiff + [r]/[s]/[b] machinery, with
-// skip as the default — when in doubt we preserve the client's file.
-func handleNetNewCollision(ref string, f ManifestFile, changes *[]change) {
+// Reuses handleUpdateConflict's temp-file + printDiff + [r]/[s]/[b] machinery, with
+// skip as the default — when in doubt we preserve the client's file. A skip
+// is appended to *skipped: the file gets NO ledger entry, so it stays
+// net-new and this prompt re-fires on the next update.
+func handleNetNewCollision(ref string, f ManifestFile, changes *[]change, skipped, skippedDisplay, pendingKept *[]string) {
+	if sha256OfFileOrEmpty(f.Path) == f.Checksum {
+		// The client's file is byte-identical to what the framework wants
+		// to install — record it as delivered, no prompt. Also how a
+		// pulled re-offer mark on a healthy checkout clears itself.
+		info("  %s already matches the framework's version; recording it as installed.", f.Path)
+		return
+	}
 	tmp := f.Path + ".ndf-incoming"
 	if err := fetchFileTo(ref, f.Path, tmp); err != nil {
 		die("fetch %s: %v", f.Path, err)
@@ -457,15 +825,22 @@ func handleNetNewCollision(ref string, f ManifestFile, changes *[]change) {
 	defer os.Remove(tmp)
 
 	warn("  %s: a file already exists here that the framework did not install; not overwriting it.", f.Path)
-	existingBytes, _ := readAll(f.Path)
-	frameworkBytes, _ := readAll(tmp)
-	printDiff("yours (existing): "+f.Path, existingBytes, "framework (new): "+f.Path, frameworkBytes)
+	if isStdinTTY() {
+		existingBytes, _ := readAll(f.Path)
+		frameworkBytes, _ := readAll(tmp)
+		printDiff("yours (existing): "+f.Path, existingBytes, "framework (new): "+f.Path, frameworkBytes)
+	} else {
+		warn("  No terminal attached — auto-skipping; your file is preserved. Re-run `ndf update` interactively to decide.")
+	}
 
 	choice := prompt("  [r]eplace your file with the framework version, [s]kip, or [b]ackup-and-replace? (default: s)", "s")
 	switch strings.ToLower(strings.TrimSpace(choice)) {
 	case "r":
 		if err := copyFile(tmp, f.Path); err != nil {
 			warn("    replace failed: %v", err)
+			*skipped = append(*skipped, f.Path)
+			*skippedDisplay = append(*skippedDisplay, f.Path+" (replace failed; your file kept)")
+			*pendingKept = append(*pendingKept, f.Path) // entry-less: the mark is its only visibility
 		} else {
 			info("    replaced %s with the framework version.", f.Path)
 			*changes = append(*changes, change{Kind: changeNew, Path: f.Path})
@@ -477,12 +852,23 @@ func handleNetNewCollision(ref string, f ManifestFile, changes *[]change) {
 				*changes = append(*changes, change{Kind: changeNew, Path: f.Path})
 			} else {
 				warn("    replace failed after backup: %v", err)
+				*skipped = append(*skipped, f.Path)
+				*skippedDisplay = append(*skippedDisplay, f.Path+" (replace failed; your file kept)")
+				*pendingKept = append(*pendingKept, f.Path)
 			}
 		} else {
 			warn("    backup failed: %v — not replacing.", err)
+			*skipped = append(*skipped, f.Path)
+			*skippedDisplay = append(*skippedDisplay, f.Path+" (backup failed; your file kept)")
+			*pendingKept = append(*pendingKept, f.Path)
 		}
 	default:
 		info("    skipped %s; your existing file is preserved.", f.Path)
+		*skipped = append(*skipped, f.Path)
+		*skippedDisplay = append(*skippedDisplay, f.Path+" (your existing file kept; the framework"+"’"+"s version was not installed)")
+		// An entry-less decline has no ledger entry to keep it visible —
+		// the pending mark is its only trace in `ndf verify`/`ndf version`.
+		*pendingKept = append(*pendingKept, f.Path)
 	}
 }
 
@@ -507,7 +893,7 @@ func customizableAction(currentChecksum, manifestChecksum string) string {
 // handleUserCustomizable processes a manifest file flagged user_customizable.
 // The framework scaffolds these once (e.g. .claude/hooks/pre-commit-tests.sh,
 // a placeholder the client replaces with their real test command) but never
-// owns them afterward. Unlike handleUpdate, the decision here does NOT consult
+// owns them afterward. Unlike the conflict path, the decision here does NOT consult
 // the marker's installed checksum: it compares on-disk content directly against
 // the manifest. That makes the "don't clobber my customization" guarantee
 // robust even when the marker's installed_checksums entry is missing or stale —

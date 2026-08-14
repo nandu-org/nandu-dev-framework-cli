@@ -2,78 +2,227 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
 
-// offerCommitAndPush mirrors bash CLI's _offer_commit_and_push: if we're in
-// a git repo and there are uncommitted changes after the update, ask the
-// user [Y/n] to commit + push. Default yes — the team handoff message
-// printed next assumes the changes are on origin/main.
+// offerCommitAndPush: if we're in a git repo and there are uncommitted
+// changes after the update, offer to commit + push them so the team handoff
+// message (which tells coworkers to pull) isn't premature.
 //
-// If the user declines, we print the manual commands they should run before
-// pasting the handoff to chat.
+// Consent rules — the operator is often an agent inside a coding session,
+// not a human at a terminal, and there every default becomes an unattended
+// decision:
+//
+//   - stdin not a TTY → NEVER run a state-changing git command (read-only
+//     probes like status/rev-parse/check-ignore still run). Print the
+//     manual commands and return. An unattended `ndf update` must not be
+//     able to commit or push anything (a 2026-07 field incident: a session-run update
+//     auto-answered the old [Y/n]-default-yes prompt and pushed to the
+//     client's integration branch against their explicit instruction).
+//   - interactive → ask, DEFAULT NO. Pushing is the kind of action that
+//     requires an explicit yes, not an absence of objection.
+//   - staging is scoped to this run's own changes + .ndf/cli/ — never
+//     `git add -A`, which would sweep unrelated working-tree changes into
+//     a commit labeled as a framework update.
+//
+// The non-main warning stays informational: a client's integration branch
+// may legitimately be develop; with default-no the push there is opt-in.
 //
 // migrationCount: see printTeamHandoff's docstring. From cmdUpdate's main
 // path, this is always 0 — the gate-fired path returns early before
 // reaching here.
-func offerCommitAndPush(targetVersion string, changes []change, migrationCount int) {
+//
+// Returns (pushed, outstanding): pushed = the changes reached the remote;
+// outstanding = uncommitted changes exist that a coworker would need.
+// printTeamHandoff needs both — a handoff that tells coworkers to pull
+// local-only changes is one dishonesty; a NOT-PUSHED banner on a run whose
+// restores left the tree byte-identical to the committed state is the
+// opposite one (alarming about nothing).
+func offerCommitAndPush(targetVersion string, changes []change, migrationCount int) (pushed, outstanding bool) {
 	projDir := os.Getenv("CLAUDE_PROJECT_DIR")
 	if projDir == "" {
 		var err error
 		projDir, err = os.Getwd()
 		if err != nil {
-			return
+			return false, false
 		}
 	}
 	if !gitIsRepo(projDir) {
-		return
+		return false, false
 	}
 	// No-op update + no migration → nothing to commit.
 	if len(changes) == 0 && migrationCount == 0 {
-		return
+		return false, false
 	}
-	if !gitHasUncommittedChanges(projDir) {
-		return
+	stage := stagePathsForCommit(changes)
+	// Scoped to the update's own paths: unrelated WIP elsewhere in the
+	// tree must neither trigger the offer nor arm the NOT-PUSHED banner,
+	// and a restore that left everything byte-identical needs no commit.
+	if !gitHasUncommittedChangesIn(projDir, stage) {
+		return false, false
 	}
 
 	branch := gitCurrentBranch(projDir)
-	if branch != "main" && branch != "master" {
+
+	printManual := func(reason string) {
+		warn("%s", reason)
+		// The printed pathspec must be runnable as-is: a gitignored
+		// .ndf/cli in the main `git add` makes the whole command exit
+		// non-zero (version-dependently half-staging), and git's own hint
+		// ("use -f") invites the wrong fix — so emit it as its own
+		// optional line instead when the project ignores it. Paths are
+		// quoted so a future path with spaces cannot split.
+		mainStage := make([]string, 0, len(stage))
+		var ignoredStage []string
+		for _, sp := range stage {
+			if _, err := gitInRepo(projDir, "check-ignore", "-q", sp); err == nil {
+				ignoredStage = append(ignoredStage, sp)
+				continue
+			}
+			mainStage = append(mainStage, sp)
+		}
+		quoted := make([]string, len(mainStage))
+		for i, sp := range mainStage {
+			quoted[i] = fmt.Sprintf("%q", sp)
+		}
+		if len(mainStage) > 0 {
+			warn("  git -C %q add -- %s", projDir, strings.Join(quoted, " "))
+		}
+		for _, sp := range ignoredStage {
+			warn("  # %s is gitignored in this project — include it only if your team commits it:", sp)
+			warn("  # git -C %q add -f -- %q", projDir, sp)
+		}
+		warn("  git -C %q commit -m \"ndf: update to v%s\"", projDir, targetVersion)
+		if branch == "" {
+			warn("  # detached HEAD — no branch to push to; check out a branch before pushing.")
+		} else {
+			warn("  git -C %q push origin %s", projDir, branch)
+		}
+	}
+
+	// The non-main caution prints on BOTH paths. On the unattended path it
+	// matters most: nobody is watching the branch there, and the manual
+	// push command below names it — it must not read as a plain to-do.
+	if branch == "" {
+		warn("detached HEAD — there is no branch to push to; check out a branch before sharing these changes.")
+	} else if !onIntegrationBranch(branch) {
 		warn("you are on branch %q, not the typical integration branch.", branch)
 		warn("Framework updates usually land on main first; coworkers pull from there.")
 	}
 
-	rawErr("")
-	rawErr("Framework changes are uncommitted on branch %q.", branch)
-	rawErr("Coworkers will pull from main, so push before sharing the team handoff.")
-	rawErr("")
-
-	choice := strings.ToLower(strings.TrimSpace(prompt("Commit and push these changes now? [Y/n]", "y")))
-	switch choice {
-	case "n", "no", "skip":
-		warn("Skipped. Before pasting the team handoff into chat:")
-		warn("  git -C %q add -A", projDir)
-		warn("  git -C %q commit -m \"ndf: update to v%s\"", projDir, targetVersion)
-		warn("  git -C %q push origin %s", projDir, branch)
-		return
+	if !isStdinTTY() {
+		rawErr("")
+		// Phrased as a report, not a task: on this path the reader is
+		// usually an agent, and an imperative "To commit: <commands>"
+		// reads as an instruction to execute — the incident shape this
+		// release removes. The consent line is unconditional.
+		printManual("Not committed or pushed (no interactive terminal). If these changes should be shared, the commands are below — do not run them without your operator's explicit go-ahead:")
+		if branch != "" && !onIntegrationBranch(branch) {
+			warn("Note: the push command above targets %q — confirm with your operator that framework updates belong there.", branch)
+		}
+		return false, true
 	}
 
-	if _, err := gitInRepo(projDir, "add", "-A"); err != nil {
-		warn("git add failed: %v — commit yourself manually before sharing handoff.", err)
-		return
+	if branch == "" {
+		printManual("Not committing (detached HEAD).")
+		return false, true
+	}
+
+	rawErr("")
+	rawErr("Framework changes are uncommitted on branch %q.", branch)
+	rawErr("Coworkers pull them from %s once you push, so push before sharing the team handoff.", branch)
+	rawErr("")
+
+	choice := prompt("Commit and push these changes now? [y/N]", "n")
+	if !commitPushConsented(choice) {
+		printManual("Not committing.")
+		return false, true
+	}
+
+	// Stage per-path, tolerating individual failures: with an explicit
+	// pathspec list, one path git cannot match (a removed file that was
+	// never tracked, a gitignored .ndf/) must not abort the commit the
+	// user just approved — nor leave a half-staged index behind, which is
+	// what a single multi-path `git add` does when it fails mid-list.
+	staged := 0
+	for _, p := range stage {
+		if _, err := gitInRepo(projDir, "add", "--", p); err != nil {
+			warn("  could not stage %s: %v — continuing with the rest.", p, err)
+			continue
+		}
+		staged++
+	}
+	if staged == 0 {
+		warn("nothing could be staged — commit yourself manually before sharing the handoff.")
+		return false, true
 	}
 	if _, err := gitInRepo(projDir, "commit", "-m", fmt.Sprintf("ndf: update to v%s", targetVersion)); err != nil {
 		warn("git commit failed: %v — resolve and commit manually before sharing handoff.", err)
-		return
+		return false, true
 	}
 	info("committed: ndf: update to v%s", targetVersion)
 
 	if err := gitInRepoStreaming(projDir, "push", "origin", branch); err != nil {
 		warn("git push failed: %v — the commit landed locally but is NOT yet on remote.", err)
 		warn("Push manually before sharing the team handoff message.")
-		return
+		return false, true
 	}
 	ok("pushed to origin/%s", branch)
+	return true, false
+}
+
+// onIntegrationBranch reports whether branch is one the team-handoff flow
+// treats as the typical integration branch. Pure — unit-tested.
+func onIntegrationBranch(branch string) bool {
+	return branch == "main" || branch == "master"
+}
+
+// commitPushConsented interprets the commit-and-push prompt answer: only an
+// explicit yes consents. Everything else — empty (the default), n, garbage —
+// declines. Pure — unit-tested, because this default IS the incident guard:
+// the pre-v2.9.0 prompt defaulted to yes, and an unattended `ndf update`
+// (where prompts auto-answer their default) committed and pushed with
+// nobody deciding.
+func commitPushConsented(choice string) bool {
+	c := strings.ToLower(strings.TrimSpace(choice))
+	return c == "y" || c == "yes"
+}
+
+// stagePathsForCommit derives the exact path set to stage for the
+// post-update commit: every path this run touched (for renames, both
+// sides) plus the CLI-state subtree (marker, sentinels, consumed
+// transients). Deliberately NOT `git add -A`: unrelated working-tree
+// changes must never ride along in a commit labeled as a framework
+// update. Pure — unit-tested in handoff_test.go.
+func stagePathsForCommit(changes []change) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, dup := seen[p]; dup {
+			return
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	for _, c := range changes {
+		if c.Kind == changeRename {
+			// Path is "old → new"; stage both sides.
+			parts := strings.SplitN(c.Path, " → ", 2)
+			for _, p := range parts {
+				add(strings.TrimSpace(p))
+			}
+			continue
+		}
+		add(c.Path)
+	}
+	// Marker, sentinels, and consumed transient files all live here.
+	add(".ndf/cli")
+	return out
 }
 
 // migrationHandoffText returns the migration-specific team-handoff text
@@ -215,47 +364,94 @@ then ` + "`/compact`" + `. If you have uncommitted local edits to ` + "`.ndf.jso
 // Passing len(manifest.Migrations) here is wrong; it was the v2.1.0 bug
 // fixed in v2.1.1. From cmdUpdate's main path, this is always 0 because
 // the gate-fired path returns early before reaching here.
-func printTeamHandoff(fromV, toV string, changes []change, migrationCount int) {
+// handoffGitContext resolves the branch context for the handoff block.
+// Empty string when there is no usable branch: detached HEAD, or not a git
+// repository at all (anchorProjectToCwd already ran, so cwd is the project).
+func handoffGitContext() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	if !gitIsRepo(cwd) {
+		return ""
+	}
+	return gitCurrentBranch(cwd)
+}
+
+func printTeamHandoff(w io.Writer, fromV, toV string, changes []change, migrationCount int, branch string, pushed, outstanding bool, notDelivered []string) {
 	if len(changes) == 0 && migrationCount == 0 {
 		return
 	}
-	rawOut("")
-	rawOut("====================")
-	rawOut("TEAM HANDOFF — paste in your team chat")
-	rawOut("====================")
-	rawOut("")
-	if fromV == toV {
-		rawOut("Framework updated on main (drift fixes; version stays at v%s)", toV)
-	} else {
-		rawOut("Framework updated: v%s → v%s (on main)", fromV, toV)
+	// The block is formatted for forwarding to humans, which makes it the
+	// one artifact of the run that must not overclaim OR under-claim: it
+	// names the branch the changes are actually on (hardcoding main
+	// misrouted every coworker of a develop-based team); it carries a
+	// NOT-PUSHED banner only while committable changes actually exist
+	// locally (a restore that left the tree byte-identical needs no
+	// alarm); it lists undelivered files inside the fence so the caveat
+	// survives the copy-paste; and with no branch to name (detached HEAD,
+	// non-git project) it declines to print a shareable block at all
+	// rather than inventing "main".
+	if branch == "" {
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "(No team handoff printed: there is no git branch to share these changes")
+		fmt.Fprintln(w, " from. If this project uses git, check out your integration branch, commit")
+		fmt.Fprintln(w, " and push, then re-run `ndf update` for a paste-ready handoff block.)")
+		return
 	}
-	rawOut("")
+	out := func(format string, args ...any) {
+		fmt.Fprintf(w, "%s\n", fmt.Sprintf(format, args...))
+	}
+	out("")
+	out("====================")
+	out("TEAM HANDOFF — paste in your team chat")
+	out("====================")
+	out("")
+	if !pushed && outstanding {
+		out("⚠️  NOT YET PUSHED — these changes are local only. Do not paste this")
+		out("   until they are committed and pushed to origin/%s.", branch)
+		out("")
+	}
+	if fromV == toV {
+		out("Framework updated on %s (drift fixes; version stays at v%s)", branch, toV)
+	} else {
+		out("Framework updated: v%s → v%s (on %s)", fromV, toV, branch)
+	}
+	out("")
 
 	if migrationCount > 0 {
-		rawOut("⚠️  THIS UPDATE INCLUDES A STRUCTURAL MIGRATION.")
-		rawOut("   After merging main, run /ndf-migrate in Claude Code, then continue.")
-		rawOut("")
+		out("⚠️  THIS UPDATE INCLUDES A STRUCTURAL MIGRATION.")
+		out("   After merging %s, run /ndf-migrate in Claude Code, then continue.", branch)
+		out("")
 	}
 
 	if len(changes) > 0 {
-		rawOut("Changed (%d file(s)):", len(changes))
+		out("Changed (%d file(s)):", len(changes))
 		for _, c := range changes {
-			rawOut("- %s (%s)", c.Path, c.Kind)
+			out("- %s (%s)", c.Path, c.Kind)
 		}
-		rawOut("")
+		out("")
 	}
 
-	rawOut("What you need to do:")
-	rawOut("- git pull origin main")
-	rawOut("- If on a phase branch: git merge main (or rebase per team convention)")
-	if migrationCount > 0 {
-		rawOut("- Run /ndf-migrate in your Claude Code session")
+	if len(notDelivered) > 0 {
+		out("Not delivered on this run (%d file(s); each line says what that means):", len(notDelivered))
+		for _, p := range notDelivered {
+			out("- %s", p)
+		}
+		out("")
 	}
-	rawOut("- If you have an active Claude Code session: /compact after merging")
-	rawOut("")
-	rawOut("CHANGELOG: https://github.com/%s/blob/main/CHANGELOG.md", FrameworkRepo)
-	rawOut("")
-	rawOut("====================")
+
+	out("What you need to do:")
+	out("- git pull origin %s", branch)
+	out("- If on a phase branch: git merge %s (or rebase per team convention)", branch)
+	if migrationCount > 0 {
+		out("- Run /ndf-migrate in your Claude Code session")
+	}
+	out("- If you have an active Claude Code session: /compact after merging")
+	out("")
+	out("CHANGELOG: https://github.com/%s/blob/main/CHANGELOG.md", FrameworkRepo)
+	out("")
+	out("====================")
 }
 
 // v415to416TeamHandoffText covers framework v4.16.0's settings.json split.

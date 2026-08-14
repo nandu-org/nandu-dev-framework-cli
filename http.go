@@ -122,7 +122,7 @@ func listSemverTags() ([]string, error) {
 // resolveRef converts a user-facing version request into a git ref.
 //
 //   - empty           → resolve "latest" via the tags API. If no semver tags
-//                       exist (brand-new repo, etc), warn and fall back to "main".
+//     exist (brand-new repo, etc), warn and fall back to "main".
 //   - "v3.3.3" or "3.3.3" → normalize to "v3.3.3"
 //
 // Mirrors the bash CLI's `_resolve_ref` exactly so the same inputs map to

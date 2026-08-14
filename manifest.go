@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // Manifest mirrors the framework repo's manifest.json shape.
@@ -12,10 +13,10 @@ import (
 // type-changing existing fields requires a coordinated framework + CLI
 // release with min_cli_version bumped.
 type Manifest struct {
-	Version       string          `json:"version"`
-	MinCLIVersion string          `json:"min_cli_version"`
-	Files         []ManifestFile  `json:"files"`
-	Migrations    []string        `json:"migrations"` // names of pending migration specs (file basenames without .md)
+	Version       string         `json:"version"`
+	MinCLIVersion string         `json:"min_cli_version"`
+	Files         []ManifestFile `json:"files"`
+	Migrations    []string       `json:"migrations"` // names of pending migration specs (file basenames without .md)
 	// Future fields land here; unmarshaling tolerates unknown keys by default.
 }
 
@@ -41,10 +42,10 @@ type ManifestFile struct {
 	// field and false as a general rule, and reading it as general produced a
 	// real bug. It was written for framework v4.7.3, which flagged
 	// pre-commit-tests.sh WITHOUT changing its content: installedSha ==
-	// f.Checksum short-circuits in cmdUpdate before handleUpdate is reached, so
+	// f.Checksum short-circuits in cmdUpdate before the conflict path is reached, so
 	// an old CLI skips the file and the ignored flag costs nothing. Framework
 	// v4.16.0 CHANGED the content of a flagged file. That destroys the
-	// short-circuit, routes the file into handleUpdate, and an old CLI — having
+	// short-circuit, routes the file into the conflict path, and an old CLI — having
 	// ignored the flag — treats it as an ordinary tracked file. The premise
 	// stopped holding; the conclusion had been carried forward anyway, and
 	// v4.16.0 shipped with min_cli_version 2.5.0 until a review caught it.
@@ -80,6 +81,27 @@ func (m *Manifest) pathSet() map[string]struct{} {
 		s[f.Path] = struct{}{}
 	}
 	return s
+}
+
+// customizablePaths returns the sorted list of paths flagged
+// user_customizable, recorded into the marker at init/update so offline
+// commands (`ndf verify`, `ndf version`) can classify client-owned drift
+// without a network fetch. Sorted for stable marker output.
+func (m *Manifest) customizablePaths() []string {
+	// Non-nil even when empty: the marker's nil-vs-empty distinction is
+	// load-bearing (nil = pre-v2.9.0 record → verify/version degrade to
+	// "unclassified"; empty = a manifest that genuinely flags nothing).
+	// A nil return here would make every install of a flag-less manifest
+	// masquerade as an unrefreshable legacy record, with a "run ndf
+	// update once" note that a further update can never satisfy.
+	out := []string{}
+	for _, f := range m.Files {
+		if f.UserCustomizable {
+			out = append(out, f.Path)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // renameSources returns the set of `renamed_from` values in this manifest,
