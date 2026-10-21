@@ -79,9 +79,14 @@ func specDeliveryPath(dir, name string) string {
 //     A directory the project owns — one this run took nothing from, or one
 //     that still holds the project's files — stays.
 func tidyAppliedMigrationSpecs(m *Manifest, deliveryDir string, changes *[]change) {
+	// The delivery dir the fetched manifest names, the CLI's own spec
+	// folder (a stale spec can sit there after a pin to an older release
+	// whose manifest does not name it), and the legacy project-root folder.
 	dirs := []string{deliveryDir}
-	if deliveryDir != legacySpecDir {
-		dirs = append(dirs, legacySpecDir)
+	for _, d := range []string{cliMigrationSpecsDir, legacySpecDir} {
+		if d != deliveryDir {
+			dirs = append(dirs, d)
+		}
 	}
 	projDir := resolveProjectPath(".")
 	inRepo := gitIsRepo(projDir)

@@ -120,10 +120,15 @@ func cmdUpdate(args []string) {
 	if len(manifest.Migrations) > 0 && len(pendingMigrations) == 0 {
 		info("all %d migration(s) in manifest already applied (sentinels present); skipping migration gate.", len(manifest.Migrations))
 		// A pending-migration marker on disk here means a /ndf-migrate run
-		// is unfinished (every sentinel exists, but its last steps did not
-		// commit): do not tidy its spec away under it. Read before the
-		// stale-marker removal below, which would hide the signal.
-		migrationRunPending := pendingMigrationExists()
+		// is unfinished: every sentinel exists, but the run stopped between
+		// its sentinel write and its commit. /ndf-migrate's own re-run
+		// finishes it (Steps 6–7) — and needs this marker and the spec to
+		// do so. Keep both, touch nothing, and send the operator there.
+		if pendingMigrationExists() {
+			warn("a /ndf-migrate run is unfinished in this project (its pending-migration marker is still present).")
+			warn("Run /ndf-migrate in Claude Code to finish it, then re-run `ndf update`.")
+			return
+		}
 		// Consume the team-handoff marker FIRST, before any tidy-up.
 		// consumePendingHandoff's defense-in-depth check looks for
 		// .ndf-pending-migration on disk and bails out if present
@@ -140,15 +145,9 @@ func cmdUpdate(args []string) {
 		_ = os.Remove(oldPendingMigrationPath())
 		// Specs of applied migrations have nothing left to do. Earlier CLIs
 		// never removed them (projects committed them into their own
-		// migrations/ folder); a /ndf-migrate run that stopped after its
-		// sentinel write leaves one too, tidied once no run is pending.
-		// Clear them from both places they can have been delivered to;
-		// tracked ones are recorded as changes.
-		if migrationRunPending {
-			info("a /ndf-migrate run is still pending; leaving its spec in place — run /ndf-migrate to finish it.")
-		} else {
-			tidyAppliedMigrationSpecs(manifest, specDir, &changes)
-		}
+		// migrations/ folder). Clear them from every place they can have
+		// been delivered to; tracked ones are recorded as changes.
+		tidyAppliedMigrationSpecs(manifest, specDir, &changes)
 	} else if len(pendingMigrations) > 0 {
 		// Pre-flight: working tree must be clean before we touch it.
 		// We're about to write spec files and a marker into the client

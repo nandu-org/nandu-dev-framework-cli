@@ -333,13 +333,19 @@ import "fmt"
 // no change. The project-root folder is one many projects own for their own
 // database migrations, whose runners refuse a Markdown file — the field
 // exists so framework files stop landing there. On an update where every
-// manifest migration is already applied and no /ndf-migrate run is pending,
-// specs of applied migrations still on disk in either folder (left by
-// earlier CLIs, which never removed them, or by a /ndf-migrate run that
-// stopped after its sentinel write) are removed; a tracked one is recorded
-// as a change, so the commit offer and team handoff carry it; a folder is
-// removed only when it is a real directory this run emptied, never one the
-// project owns and never through a symlink.
+// manifest migration is already applied, specs of applied migrations still
+// on disk in the delivery folder, the CLI's own .ndf/cli/migrations/ or the
+// legacy migrations/ (left by earlier CLIs, which never removed them, or by
+// a /ndf-migrate run that stopped between its sentinel write and its
+// cleanup) are removed; a tracked one is recorded as a change, so the commit
+// offer and team handoff carry it; a folder is removed only when it is a
+// real directory this run emptied, never one the project owns and never
+// through a symlink. An unfinished /ndf-migrate run (its pending-migration
+// marker still present with every sentinel) stops `ndf update` with the
+// instruction to finish it — the marker and spec stay for that re-run,
+// where earlier CLIs removed the marker as stale. The commit offer stages
+// `.ndf/cli` with the spec folder excluded, so a spec is never committed by
+// the framework's own commit.
 //
 // Minor bump (2.9.0 → 2.10.0): a new delivery location and a new tidy are
 // behaviour a deployed install did not have, backwards-compatible with every

@@ -76,7 +76,12 @@ func offerCommitAndPush(targetVersion string, changes []change, migrationCount i
 		// quoted so a future path with spaces cannot split.
 		mainStage := make([]string, 0, len(stage))
 		var ignoredStage []string
+		cliState := false
 		for _, sp := range stage {
+			if sp == ".ndf/cli" {
+				cliState = true // printed as its own line below, with its exclude
+				continue
+			}
 			if _, err := gitInRepo(projDir, "check-ignore", "-q", sp); err == nil {
 				ignoredStage = append(ignoredStage, sp)
 				continue
@@ -89,6 +94,14 @@ func offerCommitAndPush(targetVersion string, changes []change, migrationCount i
 		}
 		if len(mainStage) > 0 {
 			warn("  git -C %q add -- %s", projDir, strings.Join(quoted, " "))
+		}
+		if cliState {
+			cs := cliStatePathspec()
+			if _, err := gitInRepo(projDir, "check-ignore", "-q", ".ndf/cli"); err == nil {
+				ignoredStage = append(ignoredStage, ".ndf/cli")
+			} else {
+				warn("  git -C %q add -- %q %q", projDir, cs[0], cs[1])
+			}
 		}
 		for _, sp := range ignoredStage {
 			warn("  # %s is gitignored in this project — include it only if your team commits it:", sp)
@@ -148,7 +161,11 @@ func offerCommitAndPush(targetVersion string, changes []change, migrationCount i
 	// what a single multi-path `git add` does when it fails mid-list.
 	staged := 0
 	for _, p := range stage {
-		if _, err := gitInRepo(projDir, "add", "--", p); err != nil {
+		args := []string{"add", "--", p}
+		if p == ".ndf/cli" {
+			args = append([]string{"add", "--"}, cliStatePathspec()...)
+		}
+		if _, err := gitInRepo(projDir, args...); err != nil {
 			warn("  could not stage %s: %v — continuing with the rest.", p, err)
 			continue
 		}
@@ -220,9 +237,21 @@ func stagePathsForCommit(changes []change) []string {
 		}
 		add(c.Path)
 	}
-	// Marker, sentinels, and consumed transient files all live here.
+	// Marker, sentinels, and consumed transient files all live here. It is
+	// staged through cliStatePathspec, which keeps the transient spec
+	// folder out — see that function.
 	add(".ndf/cli")
 	return out
+}
+
+// cliStatePathspec is how the `.ndf/cli` stage entry is handed to git: the
+// folder plus an exclude for the transient spec folder, so a pending or
+// stale spec there is never committed by the framework's own commit. git
+// applies an exclude to every positive pathspec in the same command, so
+// this pair always goes in a `git add` of its own, never merged into the
+// line that stages the update's explicit paths.
+func cliStatePathspec() []string {
+	return []string{".ndf/cli", ":(exclude)" + cliMigrationSpecsDir}
 }
 
 // migrationHandoffText returns the migration-specific team-handoff text

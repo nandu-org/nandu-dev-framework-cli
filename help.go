@@ -129,8 +129,10 @@ When the release includes a structural migration, its spec is delivered to the
 folder that release's ` + "`/ndf-migrate`" + ` reads (` + "`.ndf/cli/migrations/`" + ` for releases
 that name it; the project-root ` + "`migrations/`" + ` for earlier ones) and the update
 stops until ` + "`/ndf-migrate`" + ` has run. When every migration is already applied,
-spec files of applied migrations that an earlier release left in either folder
-are removed (listed as removed; a folder goes only when nothing else is in it).
+spec files of applied migrations that an earlier release left behind are
+removed; the ones your repository tracks are listed as removed and included
+in the commit offered below; a folder goes only when that left it empty. An
+unfinished ` + "`/ndf-migrate`" + ` run stops the update until you have finished it.
 
 Without an interactive terminal, every conflict and collision prompt
 auto-answers "skip": nothing is replaced, the skipped files are listed at the

@@ -35,6 +35,14 @@ const (
 	// /ndf-migrate after a migration spec runs successfully.
 	migrationsSentinelDir = ".ndf/cli/sentinels"
 
+	// cliMigrationSpecsDir is the CLI-owned folder a pending migration spec
+	// lives in between a gate-fired `ndf update` and the migration commit,
+	// for framework releases whose manifest names it (migrations_dir). It
+	// is transient: /ndf-migrate removes the spec it ran and keeps the
+	// folder out of its commit, the commit offer keeps it out of its
+	// staging, and the applied-migrations tidy sweeps it.
+	cliMigrationSpecsDir = ".ndf/cli/migrations"
+
 	// Old (pre-v2.5.0) path constants — referenced by the dual-path read
 	// fallback during the catch-up window. Clients on pre-v4.4.0
 	// frameworks have their state at these paths until the
