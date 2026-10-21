@@ -6,7 +6,7 @@
 
 ### Changed
 
-- **Spec delivery follows the manifest.** A framework release declares in its manifest where its `/ndf-migrate` reads specs (`migrations_dir`); `ndf update` delivers there — `.ndf/cli/migrations/`, next to the CLI's other per-project state, for releases from framework FW_VERSION_TBD. A manifest that declares nothing keeps the project-root `migrations/` folder, so a project pinned to an earlier framework sees no change.
+- **Spec delivery follows the manifest.** A framework release declares in its manifest where its `/ndf-migrate` reads specs (`migrations_dir`); `ndf update` delivers there — `.ndf/cli/migrations/`, next to the CLI's other per-project state, for releases from framework v5.0.1. A manifest that declares nothing keeps the project-root `migrations/` folder, so a project pinned to an earlier framework sees no change.
 - **Leftover specs are removed.** When every migration in the release is already applied, `ndf update` removes the spec files of applied migrations that earlier releases left in `migrations/` (or in `.ndf/cli/migrations/`); the ones your repository tracks are listed as removed in the team handoff and included in the commit it offers. Only files named in the release's migration list are touched; a folder is removed only when that left it empty, never one that was already empty or is a symlink. Your own files are never touched.
 - **An unfinished `/ndf-migrate` run is finished, not tidied away.** If its marker is still present when you run `ndf update`, the update stops and asks you to run `/ndf-migrate` first (earlier releases removed the marker, which left the migration's output uncommitted).
 - **The framework's own commit never includes a migration spec.** The commit `ndf update` offers stages `.ndf/cli` with the spec folder excluded.
@@ -14,7 +14,7 @@
 ### Compatibility
 
 - **No framework release is needed to take this CLI.** Against every current manifest it behaves as before, apart from removing leftover specs of applied migrations.
-- **Framework FW_VERSION_TBD requires it** (`min_cli_version` 2.10.0): that release's `/ndf-migrate` reads `.ndf/cli/migrations/`, and an older CLI would deliver the spec where it is not read. When `ndf update` tells you your CLI is older than the release requires, run `ndf self-update` first.
+- **Framework v5.0.1 requires it** (`min_cli_version` 2.10.0): that release's `/ndf-migrate` reads `.ndf/cli/migrations/`, and an older CLI would deliver the spec where it is not read. When `ndf update` tells you your CLI is older than the release requires, run `ndf self-update` first.
 - No manifest format change: `migrations_dir` is an optional field older CLIs ignore. Minor bump 2.9.0 → 2.10.0 — the delivery location and the tidy are new behaviour, backwards-compatible with every existing release.
 
 ---
