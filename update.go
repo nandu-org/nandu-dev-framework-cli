@@ -119,6 +119,11 @@ func cmdUpdate(args []string) {
 	pendingMigrations := pendingMigrationsFromManifest(manifest)
 	if len(manifest.Migrations) > 0 && len(pendingMigrations) == 0 {
 		info("all %d migration(s) in manifest already applied (sentinels present); skipping migration gate.", len(manifest.Migrations))
+		// A pending-migration marker on disk here means a /ndf-migrate run
+		// is unfinished (every sentinel exists, but its last steps did not
+		// commit): do not tidy its spec away under it. Read before the
+		// stale-marker removal below, which would hide the signal.
+		migrationRunPending := pendingMigrationExists()
 		// Consume the team-handoff marker FIRST, before any tidy-up.
 		// consumePendingHandoff's defense-in-depth check looks for
 		// .ndf-pending-migration on disk and bails out if present
@@ -136,9 +141,14 @@ func cmdUpdate(args []string) {
 		// Specs of applied migrations have nothing left to do. Earlier CLIs
 		// never removed them (projects committed them into their own
 		// migrations/ folder); a /ndf-migrate run that stopped after its
-		// sentinel write leaves one too. Clear them from both places they
-		// can have been delivered to, recorded as changes.
-		tidyAppliedMigrationSpecs(manifest, specDir, &changes)
+		// sentinel write leaves one too, tidied once no run is pending.
+		// Clear them from both places they can have been delivered to;
+		// tracked ones are recorded as changes.
+		if migrationRunPending {
+			info("a /ndf-migrate run is still pending; leaving its spec in place — run /ndf-migrate to finish it.")
+		} else {
+			tidyAppliedMigrationSpecs(manifest, specDir, &changes)
+		}
 	} else if len(pendingMigrations) > 0 {
 		// Pre-flight: working tree must be clean before we touch it.
 		// We're about to write spec files and a marker into the client
@@ -155,9 +165,14 @@ func cmdUpdate(args []string) {
 		for _, name := range pendingMigrations {
 			// The framework repo keeps every spec at migrations/<name>.md;
 			// the project receives it where the release's /ndf-migrate
-			// reads it (specDir), which from framework v5.0.x is the
-			// CLI-owned .ndf/cli/migrations/ rather than a folder the
-			// project may own for its own database migrations.
+			// reads it (specDir): for a framework release whose manifest
+			// sets migrations_dir that is the CLI-owned .ndf/cli/migrations/,
+			// not a folder the project may own for its own database
+			// migrations. A name that is not a plain basename would reach
+			// outside that folder — a release defect, stop before writing.
+			if !validMigrationName(name) {
+				die("manifest migration name %q is not a plain file name", name)
+			}
 			dest := specDeliveryPath(specDir, name)
 			info("  %s", dest)
 			if err := fetchFileTo(ref, "migrations/"+name+".md", dest); err != nil {

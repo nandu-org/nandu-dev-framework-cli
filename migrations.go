@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -14,34 +15,49 @@ import (
 // can now say where specs go.
 const legacySpecDir = "migrations"
 
+// windowsVolume matches a drive-letter prefix (C:/…), which path.Clean does
+// not treat as absolute but which is one on the platform that writes it.
+var windowsVolume = regexp.MustCompile(`^[A-Za-z]:`)
+
 // specDeliveryDir returns the project-relative directory this release's
 // /ndf-migrate reads migration specs from: the manifest's migrations_dir when
 // set, else legacySpecDir. Normalised to a clean, forward-slash, relative
-// path. A manifest naming an absolute path, the project root itself, or a
-// path that escapes the project is a release defect: the error stops the
-// update before anything is written.
+// path. A manifest naming an absolute path (POSIX or drive-letter), the
+// project root itself, or a path that escapes the project is a release
+// defect: the error stops the update before anything is written.
 func (m *Manifest) specDeliveryDir() (string, error) {
 	raw := strings.TrimSpace(m.MigrationsDir)
 	if raw == "" {
 		return legacySpecDir, nil
 	}
 	d := path.Clean(strings.ReplaceAll(raw, "\\", "/"))
-	if d == "." || strings.HasPrefix(d, "/") || d == ".." || strings.HasPrefix(d, "../") {
+	if d == "." || strings.HasPrefix(d, "/") || windowsVolume.MatchString(d) || d == ".." || strings.HasPrefix(d, "../") {
 		return "", fmt.Errorf("manifest migrations_dir %q must be a relative path inside the project", raw)
 	}
 	return d, nil
 }
 
+// validMigrationName reports whether a manifest migration name is a plain
+// file basename: non-empty, no path separator, not a dot segment. The name
+// becomes <dir>/<name>.md for delivery and removal, so a name with a
+// separator or ".." would reach outside the delivery directory.
+func validMigrationName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	return !strings.ContainsAny(name, `/\`)
+}
+
 // specDeliveryPath is the project-relative path a migration spec is
 // delivered to: <dir>/<name>.md. Forward slashes, like every manifest path
-// the CLI hands to os and git.
+// the CLI hands to os and git. Callers validate the name first.
 func specDeliveryPath(dir, name string) string {
 	return path.Join(dir, name+".md")
 }
 
 // tidyAppliedMigrationSpecs removes the spec file of every manifest migration
 // whose sentinel is on disk, from the delivery directory and from
-// legacySpecDir, then removes either directory if that left it empty.
+// legacySpecDir.
 //
 // Called on the update path where every listed migration is already applied.
 // A spec still on disk there was delivered by a CLI before v2.10.0 (which
@@ -52,40 +68,80 @@ func specDeliveryPath(dir, name string) string {
 // dead weight, and in a project that owns migrations/ for its own runner it
 // is a broken build.
 //
-// Only names listed in the manifest are touched, never a glob, and a
-// directory holding anything else stays. Each removal is recorded as a
-// change so it reaches the commit offer and the team handoff.
+// Rules, each the positive form:
+//   - Only names listed in the manifest are touched, never a glob, and a name
+//     that is not a plain basename is skipped with a warning.
+//   - A removal is recorded as a change only when git tracks the file: that
+//     is what the commit offer can stage and what coworkers hold. An
+//     untracked spec (a stopped run's leftover) is removed and not recorded.
+//   - A directory is removed only when it is a real directory (never through
+//     a symlink), this run removed a spec from it, and that left it empty.
+//     A directory the project owns — one this run took nothing from, or one
+//     that still holds the project's files — stays.
 func tidyAppliedMigrationSpecs(m *Manifest, deliveryDir string, changes *[]change) {
 	dirs := []string{deliveryDir}
 	if deliveryDir != legacySpecDir {
 		dirs = append(dirs, legacySpecDir)
 	}
+	projDir := resolveProjectPath(".")
+	inRepo := gitIsRepo(projDir)
 	for _, dir := range dirs {
+		dirAbs := resolveProjectPath(dir)
+		st, err := os.Lstat(dirAbs)
+		if err != nil || !st.IsDir() {
+			// Absent, a file, or a symlink: nothing of ours to tidy, and a
+			// symlink is never followed.
+			continue
+		}
+		removedHere := 0
 		for _, name := range m.Migrations {
 			name = strings.TrimSpace(name)
-			if name == "" || !migrationSentinelExists(name) {
+			if name == "" {
+				continue
+			}
+			if !validMigrationName(name) {
+				warn("  manifest migration name %q is not a plain file name — leaving it alone.", name)
+				continue
+			}
+			if !migrationSentinelExists(name) {
 				continue
 			}
 			rel := specDeliveryPath(dir, name)
 			abs := resolveProjectPath(rel)
-			st, err := os.Stat(abs)
-			if err != nil || !st.Mode().IsRegular() {
+			fst, err := os.Lstat(abs)
+			if err != nil || !fst.Mode().IsRegular() {
 				continue
+			}
+			tracked := false
+			if inRepo {
+				if _, err := gitInRepo(projDir, "ls-files", "--error-unmatch", "--", rel); err == nil {
+					tracked = true
+				}
 			}
 			if err := os.Remove(abs); err != nil {
 				warn("  could not remove %s: %v", rel, err)
 				continue
 			}
+			removedHere++
 			info("  removed %s (migration already applied; nothing reads the spec)", rel)
-			*changes = append(*changes, change{Kind: changeRemove, Path: rel})
+			if tracked {
+				*changes = append(*changes, change{Kind: changeRemove, Path: rel})
+			}
 		}
-		removeDirIfEmpty(resolveProjectPath(dir))
+		if removedHere > 0 {
+			removeDirIfEmptied(dirAbs)
+		}
 	}
 }
 
-// removeDirIfEmpty removes abs when it is an empty directory; anything else
-// (absent, a file, a directory with content) is left alone.
-func removeDirIfEmpty(abs string) {
+// removeDirIfEmptied removes abs when it is a real, now-empty directory —
+// called only for a directory this run removed a spec from. Anything else
+// (a symlink, a file, a directory with content) is left alone.
+func removeDirIfEmptied(abs string) {
+	st, err := os.Lstat(abs)
+	if err != nil || !st.IsDir() {
+		return
+	}
 	entries, err := os.ReadDir(abs)
 	if err != nil || len(entries) != 0 {
 		return
