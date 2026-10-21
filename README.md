@@ -179,6 +179,7 @@ After updating, verify with `ndf version`.
 - Framework files (private, requires PAT): [nandu-org/nandu-dev-framework](https://github.com/nandu-org/nandu-dev-framework)
 - Per-developer config: `~/.config/nandu/config.json` on Unix / `%APPDATA%\nandu\config.json` on Windows (mode 0600 on Unix; created by `ndf login`)
 - Per-project marker: `.ndf/cli/install.json` (commit this — it's how `ndf update` knows what's installed)
+- Per-project transient state: `.ndf/cli/sentinels/` (migration completion markers — commit these), `.ndf/cli/pending-migration`, `.ndf/cli/pending-handoff` and, between a gate-fired `ndf update` and the migration commit, `.ndf/cli/migrations/<name>.md` (the pending spec, for framework releases that name that folder; earlier releases use the project-root `migrations/`)
 
 ## Env vars (CI use)
 
