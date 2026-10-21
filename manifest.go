@@ -17,6 +17,17 @@ type Manifest struct {
 	MinCLIVersion string         `json:"min_cli_version"`
 	Files         []ManifestFile `json:"files"`
 	Migrations    []string       `json:"migrations"` // names of pending migration specs (file basenames without .md)
+	// MigrationsDir is where this release's /ndf-migrate reads migration
+	// specs, relative to the project root, and therefore where `ndf update`
+	// delivers them. Absent → "migrations", the project-root folder every
+	// release before the field used (see specDeliveryDir in migrations.go).
+	//
+	// Optional field, and the UserCustomizable rule below applies to it in
+	// full: an older CLI does not error on it, it IGNORES it and delivers the
+	// spec to migrations/, where that release's /ndf-migrate will not look.
+	// The framework release that first sets this field therefore raises
+	// min_cli_version to 2.10.0, the first CLI that reads it.
+	MigrationsDir string `json:"migrations_dir,omitempty"`
 	// Future fields land here; unmarshaling tolerates unknown keys by default.
 }
 

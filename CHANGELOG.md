@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.10.0 — 2026-10-21
+
+**Migration specs no longer land in your project's `migrations/` folder.** `ndf update` delivered each pending migration spec to `migrations/<name>.md` at the project root — a folder many projects own for their database migrations, whose runners refuse a Markdown file, so a delivered spec broke their test suite until someone deleted it by hand. The spec now goes where the framework release's `/ndf-migrate` reads it.
+
+### Changed
+
+- **Spec delivery follows the manifest.** A framework release declares in its manifest where its `/ndf-migrate` reads specs (`migrations_dir`); `ndf update` delivers there — `.ndf/cli/migrations/`, next to the CLI's other per-project state, for releases from framework FW_VERSION_TBD. A manifest that declares nothing keeps the project-root `migrations/` folder, so a project pinned to an earlier framework sees no change.
+- **Leftover specs are removed.** When every migration in the release is already applied, `ndf update` removes the spec files of applied migrations that earlier releases left in `migrations/` (or in `.ndf/cli/migrations/`), lists each one as removed in the team handoff, and includes the removals in the commit it offers. Only files named in the release's migration list are touched; a folder is removed only when nothing else is in it. Your own files are never touched.
+
+### Compatibility
+
+- **No framework release is needed to take this CLI.** Against every current manifest it behaves as before, apart from removing leftover specs of applied migrations.
+- **Framework FW_VERSION_TBD requires it** (`min_cli_version` 2.10.0): that release's `/ndf-migrate` reads `.ndf/cli/migrations/`, and an older CLI would deliver the spec where it is not read. When `ndf update` tells you your CLI is older than the release requires, run `ndf self-update` first.
+- No manifest format change: `migrations_dir` is an optional field older CLIs ignore. Minor bump 2.9.0 → 2.10.0 — the delivery location and the tidy are new behaviour, backwards-compatible with every existing release.
+
+---
+
 ## v2.9.0 — 2026-08-13
 
 **The CLI now assumes its operator may be an agent, and its install record now tells the truth.** Two defects surfaced together in the field: `ndf update` recorded every file in its install record as delivered whether or not it actually was — so a file declined at a prompt vanished from every later update's view and a project could run framework files several releases old under a current version number, with `ndf version` repeating the claim — and the post-update "commit and push?" prompt defaulted to yes, which meant an `ndf update` run without an interactive terminal (from a coding agent or CI, where prompts auto-answer their default) committed with `git add -A` and pushed to the current branch with nobody deciding. Both are fixed, and a new `ndf verify` makes the install state checkable in seconds.

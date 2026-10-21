@@ -95,9 +95,23 @@ func cmdUpdate(args []string) {
 		info("updating from v%s to v%s", currentVersion, manifest.Version)
 	}
 
+	// Where this release's /ndf-migrate reads specs — the manifest says
+	// (migrations_dir), else the project-root migrations/ folder. Resolved
+	// before the gate so a defective value stops the run before any write.
+	specDir, err := manifest.specDeliveryDir()
+	if err != nil {
+		die("%v", err)
+	}
+
+	// The change log the team handoff and the commit offer read. Declared
+	// before the gate because the applied-migrations branch below can
+	// record removals (specs of applied migrations left on disk).
+	var changes []change
+
 	// ---- migration gate ----
 	// Sentinel-aware: each migration in manifest.Migrations is "applied" iff
-	// `.ndf-migrations/<name>.complete` exists. If every listed migration is
+	// its sentinel exists (.ndf/cli/sentinels/<name>.complete, or the
+	// pre-v2.5.0 .ndf-migrations/ location). If every listed migration is
 	// already applied, fall through to the regular file-level update flow.
 	// Otherwise, pre-deliver only the pending specs + slash command, write
 	// the pending-migration marker so /ndf-migrate knows which to run, and
@@ -119,6 +133,12 @@ func cmdUpdate(args []string) {
 		// both removes succeed-or-no-op via os.IsNotExist tolerance.
 		_ = os.Remove(pendingMigrationPath())
 		_ = os.Remove(oldPendingMigrationPath())
+		// Specs of applied migrations have nothing left to do. Earlier CLIs
+		// never removed them (projects committed them into their own
+		// migrations/ folder); a /ndf-migrate run that stopped after its
+		// sentinel write leaves one too. Clear them from both places they
+		// can have been delivered to, recorded as changes.
+		tidyAppliedMigrationSpecs(manifest, specDir, &changes)
 	} else if len(pendingMigrations) > 0 {
 		// Pre-flight: working tree must be clean before we touch it.
 		// We're about to write spec files and a marker into the client
@@ -133,10 +153,15 @@ func cmdUpdate(args []string) {
 
 		info("this release includes %d pending structural migration(s); pre-delivering specs…", len(pendingMigrations))
 		for _, name := range pendingMigrations {
-			specPath := "migrations/" + name + ".md"
-			info("  %s", specPath)
-			if err := fetchFileTo(ref, specPath, specPath); err != nil {
-				die("fetch %s: %v", specPath, err)
+			// The framework repo keeps every spec at migrations/<name>.md;
+			// the project receives it where the release's /ndf-migrate
+			// reads it (specDir), which from framework v5.0.x is the
+			// CLI-owned .ndf/cli/migrations/ rather than a folder the
+			// project may own for its own database migrations.
+			dest := specDeliveryPath(specDir, name)
+			info("  %s", dest)
+			if err := fetchFileTo(ref, "migrations/"+name+".md", dest); err != nil {
+				die("fetch %s: %v", dest, err)
 			}
 		}
 		// Always re-deliver the slash command; specs may reference its
@@ -162,7 +187,6 @@ func cmdUpdate(args []string) {
 	}
 
 	// ---- pass 1: process every file in the new manifest ----
-	var changes []change
 	var customizablePreserved []string
 	// Paths the user (or the non-TTY default) skipped at a conflict or
 	// collision prompt this run. Feeds ledgerAfterUpdate — a skipped file

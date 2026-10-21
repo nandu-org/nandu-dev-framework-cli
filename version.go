@@ -325,10 +325,32 @@ import "fmt"
 // additive and CLI-internal — no manifest schema change, no
 // `min_cli_version` bump.
 //
+// v2.10.0 — migration specs are delivered where the release's /ndf-migrate
+// reads them. The manifest's optional `migrations_dir` names that folder
+// (framework releases that set it use `.ndf/cli/migrations/`, CLI-owned
+// state); a manifest without the field keeps the project-root `migrations/`
+// every earlier release used, so a project pinned to an older framework sees
+// no change. The project-root folder is one many projects own for their own
+// database migrations, whose runners refuse a Markdown file — the field
+// exists so framework files stop landing there. On an update where every
+// manifest migration is already applied, specs of applied migrations still
+// on disk in either folder (left by earlier CLIs, which never removed them,
+// or by a /ndf-migrate run that stopped after its sentinel write) are
+// removed and recorded as changes, so the commit offer and team handoff
+// carry them; a folder is removed only when that left it empty.
+//
+// Minor bump (2.9.0 → 2.10.0): a new delivery location and a new tidy are
+// behaviour a deployed install did not have, backwards-compatible with every
+// existing manifest. The paired framework release that first sets
+// `migrations_dir` raises `min_cli_version` to 2.10.0 — an older CLI ignores
+// the field and delivers to migrations/, where that release's /ndf-migrate
+// does not look (the manifest.go rule: the floor tracks any guarantee only
+// the CLI can keep).
+//
 // Declared as `var` (not `const`) so the release workflow can override it via
 // `-ldflags "-X main.CLIVersion=..."` to bake the actual git tag into the
 // binary. Local dev builds (no -X flag) get this default value.
-var CLIVersion = "2.9.0"
+var CLIVersion = "2.10.0"
 
 // FrameworkRepo is the GitHub slug of the framework files repo (private).
 const FrameworkRepo = "nandu-org/nandu-dev-framework"
